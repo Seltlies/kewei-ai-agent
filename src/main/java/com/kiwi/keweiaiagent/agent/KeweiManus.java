@@ -1,9 +1,11 @@
 package com.kiwi.keweiaiagent.agent;
 
 import com.kiwi.keweiaiagent.advisor.MyLoggerAdvisor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 
@@ -11,12 +13,28 @@ import org.springframework.stereotype.Component;
  * Manus 智能体实现类，负责装配工具集、系统提示词和大模型客户端。
  */
 @Component
+@Slf4j
 public class KeweiManus extends ToolCallAgent{
-    public KeweiManus(ToolCallback[] allTools, ChatModel ollamaChatModel) {
-        this(allTools, ollamaChatModel, "");
+    /**
+     * 使用百炼聊天模型和指定工具集合创建不携带长期记忆提示词的 Manus 智能体。
+     *
+     * @param allTools 智能体可调用的工具集合
+     * @param chatModel 百炼 DashScope 聊天模型
+     */
+    @Autowired
+    public KeweiManus(ToolCallback[] allTools, ChatModel chatModel) {
+        this(allTools, chatModel, "");
     }
 
-    public KeweiManus(ToolCallback[] allTools, ChatModel ollamaChatModel, String longTermMemoryPrompt) {
+    /**
+     * 使用百炼聊天模型、工具集合和长期记忆提示词创建 Manus 智能体，随后通过
+     * {@link ChatClient#builder(ChatModel)} 组装日志 Advisor 并交给父类执行 ReAct 流程。
+     *
+     * @param allTools 智能体可调用的工具集合
+     * @param chatModel 百炼 DashScope 聊天模型
+     * @param longTermMemoryPrompt 追加到系统提示词中的长期记忆说明
+     */
+    public KeweiManus(ToolCallback[] allTools, ChatModel chatModel, String longTermMemoryPrompt) {
         super(allTools);
         this.setName("KeweiManus");
         String System_Prompt = """
@@ -43,9 +61,10 @@ public class KeweiManus extends ToolCallAgent{
         this.setNextStepPrompt(Next_Step_Prompt);
         this.setMaxSteps(20);
 
-        ChatClient chatClient = ChatClient.builder(ollamaChatModel)
+        ChatClient chatClient = ChatClient.builder(chatModel)
                 .defaultAdvisors(new MyLoggerAdvisor())
                 .build();
         this.setChatClient(chatClient);
+        log.info("已使用百炼 DashScope ChatModel 初始化 Manus 聊天客户端，工具数量={}", allTools.length);
     }
 }

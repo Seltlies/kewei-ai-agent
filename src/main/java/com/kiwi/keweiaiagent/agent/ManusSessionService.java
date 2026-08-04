@@ -90,10 +90,10 @@ public class ManusSessionService {
     private ToolCallback[] allTools;
 
     /**
-     * 用于创建 Manus 智能体的大模型实例。
+     * 用于创建 Manus 智能体的系统默认聊天模型，具体供应方由 Spring AI 配置决定。
      */
     @Resource
-    private ChatModel ollamaChatModel;
+    private ChatModel chatModel;
 
     /**
      * Manus 会话存储组件。
@@ -108,11 +108,18 @@ public class ManusSessionService {
     private LongTermMemoryPromptService longTermMemoryPromptService;
 
     /**
-     * 启动新的 Manus 流式会话。
+     * 根据用户初始消息筛选任务工具，加载长期记忆提示词后创建 Manus 智能体，
+     * 将会话编号和存储组件绑定到智能体，再调用 {@link KeweiManus#runStream(String)}
+     * 返回流式结果。会话会在执行前写入 {@link ManusSessionStore}，供后续补充信息时恢复。
+     *
+     * @param chatId 前端生成的会话唯一标识
+     * @param message 用户提交的初始任务内容
+     * @return 持续推送 Manus 执行事件的 SSE 发射器
      */
     public SseEmitter startChatStream(String chatId, String message) {
         ToolCallback[] selectedTools = selectToolsForPrompt(message);
-        KeweiManus manus = new KeweiManus(selectedTools, ollamaChatModel, longTermMemoryPromptService.buildPrompt());
+        log.info("使用百炼 ChatModel 启动 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
+        KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
         manus.setSessionId(chatId);
         manus.setManusSessionStore(manusSessionStore);
         manusSessionStore.putSession(chatId, message, manus);
@@ -120,7 +127,14 @@ public class ManusSessionService {
     }
 
     /**
-     * 基于补充答案继续执行 Manus 会话。
+     * 从 {@link ManusSessionStore} 读取待继续会话，把用户补充答案整理为跟进提示词，
+     * 按原始任务重新选择工具并创建 Manus 智能体，随后覆盖保存最新会话状态并调用
+     * {@link KeweiManus#runStream(String)} 继续流式执行。
+     *
+     * @param chatId 待继续会话的唯一标识
+     * @param answers 问题编号与用户补充答案之间的映射
+     * @return 持续推送后续执行事件的 SSE 发射器
+     * @throws BusinessException 会话不存在或不处于可继续状态时抛出
      */
     public SseEmitter continueChatStream(String chatId, Map<String, String> answers) {
         ManusSessionStore.ManusSession session = manusSessionStore.getSession(chatId);
@@ -130,7 +144,8 @@ public class ManusSessionService {
         String followupPrompt = buildFollowupPrompt(session, answers);
 
         ToolCallback[] selectedTools = selectToolsForPrompt(session.initialPrompt());
-        KeweiManus manus = new KeweiManus(selectedTools, ollamaChatModel, longTermMemoryPromptService.buildPrompt());
+        log.info("使用百炼 ChatModel 继续 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
+        KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
         manus.setSessionId(chatId);
         manus.setManusSessionStore(manusSessionStore);
         manusSessionStore.putSession(chatId, followupPrompt, manus);

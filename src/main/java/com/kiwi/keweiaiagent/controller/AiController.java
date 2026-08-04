@@ -11,7 +11,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import org.springframework.util.StringUtils;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -59,12 +58,6 @@ public class AiController {
      */
     @Resource
     private ToolCallback[] allTools;
-
-    /**
-     * 对话使用的大模型实例。
-     */
-    @Resource
-    private ChatModel ollamaChatModel;
 
     /**
      * JSON 序列化工具。
