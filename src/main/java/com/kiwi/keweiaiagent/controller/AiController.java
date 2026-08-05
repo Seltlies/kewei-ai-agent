@@ -14,7 +14,6 @@ import org.springframework.util.StringUtils;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -80,7 +79,7 @@ public class AiController {
     /**
      * 同步调用恋爱助手完成一次对话。
      */
-    @GetMapping("/love_app/chat/sync")
+    @PostMapping("/love_app/chat/sync")
     public Object doChatWithLoveAppSync(String message, String chatId, String option, String imagePath){
         if (shouldUseTodoDemoOption(option)) {
             return todoDemoApp.call(message, chatId);
@@ -97,7 +96,7 @@ public class AiController {
     /**
      * 以 SSE 方式调用恋爱助手并返回流式结果。
      */
-    @GetMapping(value = "/love_app/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/love_app/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> doChatWithLoveAppSSE(String message, String chatId, String option, String imagePath){
         if (shouldUseTodoDemoOption(option)) {
             return todoDemoApp.stream(message, chatId);
@@ -115,7 +114,7 @@ public class AiController {
     /**
      * 通过 ServerSentEvent 包装流式输出。
      */
-    @GetMapping(value = "/love_app/chat/server_sent_event")
+    @PostMapping(value = "/love_app/chat/server_sent_event")
     public Flux<ServerSentEvent<String>> zdoChatWithLoveAppServerSentEvent(String message, String chatId, String option, String imagePath){
         Flux<String> contentFlux = shouldUseSkillsOption(option)
                 ? loveApp.streamWithSkills(message, chatId).map(this::toJson)
@@ -131,7 +130,7 @@ public class AiController {
     /**
      * 通过 SseEmitter 直接向客户端推送恋爱助手回复。
      */
-    @GetMapping(value = "/love_app/chat/sse_emitter", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/love_app/chat/sse_emitter", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter doChatWithLoveAppSseEmitter(String message, String chatId, String option, String imagePath) {
         SseEmitter emitter = new SseEmitter(DEFAULT_SSE_TIMEOUT);
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -186,7 +185,7 @@ public class AiController {
     /**
      * 启动 Manus 智能体流式会话。
      */
-    @GetMapping("manus/chat")
+    @PostMapping("manus/chat")
     public SseEmitter doChatWithManus(String message, String chatId, String option, String imagePath){
         return manusSessionService.startChatStream(chatId, message);
     }

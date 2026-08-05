@@ -28,8 +28,16 @@ spring:
         refresh-enabled: false
   profiles:
     active: local,dashscope
+  session:
+    data:
+      redis:
+        # Spring Boot 4 使用 data.redis 层级配置 Redis Session，并以独立命名空间隔离认证会话。
+        namespace: kewei:auth:session
+        repository-type: default
   autoconfigure:
     exclude:
+      # 项目只使用自建 MySQL 账号与 Redis Session，禁止生成默认内存用户及随机开发密码。
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeRerankAutoConfiguration
@@ -93,6 +101,28 @@ server:
   port: 8123
   servlet:
     context-path: /api
+    session:
+      # Redis HttpSession 连续 24 小时没有收到有效请求后失效。
+      timeout: 24h
+      cookie:
+        # 认证 Cookie 使用独立名称，避免与同域下其他应用的默认 JSESSIONID 冲突。
+        name: KEWEI_SESSION
+        http-only: true
+        # 本地 HTTP 开发环境必须为 false；生产环境通过环境变量强制设置为 true。
+        secure: ${SESSION_COOKIE_SECURE:false}
+        # 前后端同站部署及本地不同端口场景使用 lax；跨站部署时由生产环境显式调整。
+        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
+        # 持久化 Cookie 关闭浏览器后继续保留，但服务端仍会执行 24 小时不活跃和 7 天绝对期限校验。
+        max-age: 7d
+
+app:
+  security:
+    session:
+      # 绝对有效期独立于不活跃期限；达到 7 天后即使持续访问也必须重新登录。
+      absolute-timeout: 7d
+  cors:
+    # 凭据请求不允许通配来源，生产环境使用逗号分隔的明确前端 Origin。
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
 # springdoc-openapi ??????
 springdoc:

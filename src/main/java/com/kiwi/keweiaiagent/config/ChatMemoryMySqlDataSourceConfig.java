@@ -11,17 +11,21 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
 @Configuration
-@ConditionalOnProperty(prefix = "app.chat-memory", name = "type", havingValue = "mysql")
 @ConditionalOnProperty(prefix = "app.datasource.mysql", name = "url")
 @MapperScan(
-        basePackages = "com.kiwi.keweiaiagent.chatmemory.mapper",
+        basePackages = {
+                "com.kiwi.keweiaiagent.chatmemory.mapper",
+                "com.kiwi.keweiaiagent.account.mapper"
+        },
         sqlSessionFactoryRef = "chatMemorySqlSessionFactory"
 )
-    public class ChatMemoryMySqlDataSourceConfig {
+public class ChatMemoryMySqlDataSourceConfig {
 
     @Bean(name = "chatMemoryMySqlDataSourceProperties")
     @ConfigurationProperties(prefix = "app.datasource.mysql")
@@ -33,7 +37,7 @@ import javax.sql.DataSource;
     public DataSource chatMemoryMySqlDataSource(
             @Qualifier("chatMemoryMySqlDataSourceProperties") DataSourceProperties properties
     ) {
-        // Use DataSourceProperties so `url` can be translated to Hikari's `jdbcUrl`.
+        // 使用 DataSourceProperties 创建数据源，确保 url 能正确映射为 Hikari 的 jdbcUrl。
         return properties.initializeDataSourceBuilder().build();
     }
 
@@ -42,6 +46,18 @@ import javax.sql.DataSource;
             @Qualifier("chatMemoryMySqlDataSource") DataSource dataSource
     ) {
         return new JdbcTemplate(dataSource);
+    }
+
+    /**
+     * 为账号和聊天业务提供明确绑定 MySQL 数据源的事务管理器，避免多数据源环境下误用
+     * PgVector 对应的主数据源事务。账号注册、最后登录时间更新和后续管理操作均通过该
+     * 事务管理器提交。
+     */
+    @Bean(name = "mysqlTransactionManager")
+    public PlatformTransactionManager mysqlTransactionManager(
+            @Qualifier("chatMemoryMySqlDataSource") DataSource dataSource
+    ) {
+        return new JdbcTransactionManager(dataSource);
     }
 
     @Bean(name = "chatMemorySqlSessionFactory")
