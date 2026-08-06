@@ -73,10 +73,10 @@ class LoveAppTest {
     void doChatWithImage() {
         String chatId = UUID.randomUUID().toString();
         String message = "这是什么？";
-        String answer = loveApp.doChatWithImage(message, chatId, "static/images/test.png");
+        String answer = loveApp.doChatWithImage(message, chatId, "attachment-test", "static/images/test.png");
         Assertions.assertNotNull(answer);
         String message1 = "为什么是东北虎？不是西南虎？";
-        String answer1 = loveApp.doChatWithImage(message1, chatId, "static/images/test.png");
+        String answer1 = loveApp.doChatWithImage(message1, chatId, "attachment-test", "static/images/test.png");
         Assertions.assertNotNull(answer1);
     }
 

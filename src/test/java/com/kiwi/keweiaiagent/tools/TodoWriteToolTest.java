@@ -1,6 +1,7 @@
 package com.kiwi.keweiaiagent.tools;
 
 import com.kiwi.keweiaiagent.agent.ManusSessionStore;
+import com.kiwi.keweiaiagent.agent.ManusExecutionService;
 import com.kiwi.keweiaiagent.agent.todo.CommunityTodoMapper;
 import com.kiwi.keweiaiagent.agent.todo.TodoSnapshot;
 import org.junit.jupiter.api.Test;
@@ -13,14 +14,15 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class TodoWriteToolTest {
 
     @Test
     void shouldAcceptStructuredJsonArgumentsAndSaveTodoSnapshot() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我做个方案", null);
-        store.activateSession("chat-1");
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我做个方案", null);
+        store.activateSession("chat-1", "execution-1");
         TodoWriteTool delegate = TodoWriteTool.builder()
                 .todoEventHandler(todos -> store.saveTodoSnapshot("chat-1", CommunityTodoMapper.toSnapshot(todos)))
                 .build();
@@ -41,9 +43,9 @@ class TodoWriteToolTest {
 
     @Test
     void shouldRejectMultipleInProgressItems() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我做个方案", null);
-        store.activateSession("chat-1");
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我做个方案", null);
+        store.activateSession("chat-1", "execution-1");
         TodoWriteTool delegate = TodoWriteTool.builder()
                 .todoEventHandler(todos -> store.saveTodoSnapshot("chat-1", CommunityTodoMapper.toSnapshot(todos)))
                 .build();

@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kiwi.keweiaiagent.account.service.UserAccountService;
 import com.kiwi.keweiaiagent.common.BaseResponse;
 import com.kiwi.keweiaiagent.exception.ErrorCode;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +33,7 @@ import java.time.Duration;
  */
 @Configuration
 @EnableWebSecurity
+@Slf4j
 public class SecurityConfig {
 
     /**
@@ -53,8 +56,10 @@ public class SecurityConfig {
     }
 
     /**
-     * 建立统一接口权限、CSRF、CORS、异常响应和会话策略。默认登录页、HTTP Basic 和框架
-     * 默认退出端点全部关闭，防止与 REST 认证接口形成两套并行行为。
+     * 建立统一接口权限、CSRF、CORS、异常响应和会话策略。原始 HTTP 请求仍按接口路径完成
+     * 登录态与 CSRF 校验；Servlet 容器在 SseEmitter 建立后触发的 ASYNC、ERROR 二次分派
+     * 不会再次进入业务控制器，因此只放行这两类服务端分派，避免已经认证的 SSE 连接被
+     * 二次授权误判为匿名请求。默认登录页、HTTP Basic 和框架默认退出端点全部关闭。
      */
     @Bean
     public SecurityFilterChain securityFilterChain(
@@ -81,6 +86,9 @@ public class SecurityConfig {
                 .httpBasic(basic -> basic.disable())
                 .logout(logout -> logout.disable())
                 .authorizeHttpRequests(authorize -> authorize
+                        // ASYNC、ERROR 类型只能由 Servlet 容器在原请求完成安全校验后触发，
+                        // 客户端无法通过请求参数伪造 DispatcherType，因此不会绕过入口鉴权。
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
                                 "/auth/csrf",
@@ -104,6 +112,7 @@ public class SecurityConfig {
                                 writeSecurityError(response, ErrorCode.FORBIDDEN, objectMapper))
                 )
                 .addFilterBefore(sessionAuthenticationFilter, AnonymousAuthenticationFilter.class);
+        log.info("安全过滤链已允许 SSE 的 ASYNC、ERROR 服务端二次分派，原始接口继续执行登录态与 CSRF 校验");
         return http.build();
     }
 

@@ -21,7 +21,9 @@ import javax.sql.DataSource;
 @MapperScan(
         basePackages = {
                 "com.kiwi.keweiaiagent.chatmemory.mapper",
-                "com.kiwi.keweiaiagent.account.mapper"
+                "com.kiwi.keweiaiagent.account.mapper",
+                "com.kiwi.keweiaiagent.chat.mapper",
+                "com.kiwi.keweiaiagent.agent.mapper"
         },
         sqlSessionFactoryRef = "chatMemorySqlSessionFactory"
 )

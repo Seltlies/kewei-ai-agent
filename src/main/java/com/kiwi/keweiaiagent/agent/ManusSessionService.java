@@ -1,6 +1,7 @@
 package com.kiwi.keweiaiagent.agent;
 
 import com.kiwi.keweiaiagent.app.LongTermMemoryPromptService;
+import com.kiwi.keweiaiagent.agent.entity.ManusExecutionDO;
 import com.kiwi.keweiaiagent.exception.BusinessException;
 import com.kiwi.keweiaiagent.exception.ErrorCode;
 import jakarta.annotation.Resource;
@@ -8,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Arrays;
@@ -16,6 +18,8 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Manus 会话服务，负责按任务类型选择工具并驱动会话继续执行。
@@ -108,22 +112,47 @@ public class ManusSessionService {
     private LongTermMemoryPromptService longTermMemoryPromptService;
 
     /**
+     * Manus 执行数据库服务，每次启动任务先创建独立执行记录，再启动异步智能体。
+     */
+    @Resource
+    private ManusExecutionService manusExecutionService;
+
+    /**
+     * 同一服务进程内按 chatId 串行化 Manus 启动和继续操作，确保数据库执行记录提交顺序
+     * 与内存会话发布顺序一致，避免较早请求在较晚请求之后覆盖最新 executionId。
+     */
+    private final ConcurrentHashMap<String, SessionExecutionLock> sessionExecutionLocks = new ConcurrentHashMap<>();
+
+    /**
      * 根据用户初始消息筛选任务工具，加载长期记忆提示词后创建 Manus 智能体，
      * 将会话编号和存储组件绑定到智能体，再调用 {@link KeweiManus#runStream(String)}
      * 返回流式结果。会话会在执行前写入 {@link ManusSessionStore}，供后续补充信息时恢复。
      *
-     * @param chatId 前端生成的会话唯一标识
+     * @param accountId 当前认证账号主键
+     * @param chatId 服务端生成且已经完成归属校验的会话标识
      * @param message 用户提交的初始任务内容
      * @return 持续推送 Manus 执行事件的 SSE 发射器
      */
-    public SseEmitter startChatStream(String chatId, String message) {
-        ToolCallback[] selectedTools = selectToolsForPrompt(message);
-        log.info("使用百炼 ChatModel 启动 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
-        KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
-        manus.setSessionId(chatId);
-        manus.setManusSessionStore(manusSessionStore);
-        manusSessionStore.putSession(chatId, message, manus);
-        return manus.runStream(message);
+    public SseEmitter startChatStream(Long accountId, String chatId, String message) {
+        if (!StringUtils.hasText(message)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAM, "Manus 任务不能为空");
+        }
+        SessionExecutionLock sessionLock = acquireSessionExecutionLock(chatId);
+        try {
+            ToolCallback[] selectedTools = selectToolsForPrompt(message);
+            log.info("使用百炼 ChatModel 启动 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
+            KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
+            manus.setSessionId(chatId);
+            manus.setManusSessionStore(manusSessionStore);
+            ManusExecutionDO execution = manusExecutionService.startExecution(accountId, chatId, message);
+            manus.setExecutionId(execution.getExecutionId());
+            manusSessionStore.putSession(chatId, accountId, execution.getExecutionId(), message, manus);
+            log.info("Manus 执行已按会话顺序发布到内存，chatId={}，executionId={}",
+                    chatId, execution.getExecutionId());
+            return manus.runStream(message);
+        } finally {
+            releaseSessionExecutionLock(chatId, sessionLock);
+        }
     }
 
     /**
@@ -137,19 +166,34 @@ public class ManusSessionService {
      * @throws BusinessException 会话不存在或不处于可继续状态时抛出
      */
     public SseEmitter continueChatStream(String chatId, Map<String, String> answers) {
-        ManusSessionStore.ManusSession session = manusSessionStore.getSession(chatId);
-        if (session == null || session.agent() == null) {
-            throw new BusinessException(ErrorCode.INVALID_PARAM, "未找到待继续的会话");
+        if (answers == null || answers.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAM, "Manus 补充答案不能为空");
         }
-        String followupPrompt = buildFollowupPrompt(session, answers);
+        SessionExecutionLock sessionLock = acquireSessionExecutionLock(chatId);
+        try {
+            ManusSessionStore.ManusSession session = manusSessionStore.getSession(chatId);
+            if (session == null || session.agent() == null) {
+                throw new BusinessException(ErrorCode.INVALID_PARAM, "未找到待继续的会话");
+            }
+            String followupPrompt = buildFollowupPrompt(session, answers);
 
-        ToolCallback[] selectedTools = selectToolsForPrompt(session.initialPrompt());
-        log.info("使用百炼 ChatModel 继续 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
-        KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
-        manus.setSessionId(chatId);
-        manus.setManusSessionStore(manusSessionStore);
-        manusSessionStore.putSession(chatId, followupPrompt, manus);
-        return manus.runStream(followupPrompt);
+            ToolCallback[] selectedTools = selectToolsForPrompt(session.initialPrompt());
+            log.info("使用百炼 ChatModel 继续 Manus 会话，chatId={}，工具数量={}", chatId, selectedTools.length);
+            KeweiManus manus = new KeweiManus(selectedTools, chatModel, longTermMemoryPromptService.buildPrompt());
+            manus.setSessionId(chatId);
+            manus.setManusSessionStore(manusSessionStore);
+            manus.setExecutionId(session.executionId());
+            ManusSessionStore.ManusSession continued =
+                    manusSessionStore.prepareContinuation(chatId, manus, answers);
+            if (continued == null) {
+                throw new BusinessException(ErrorCode.CHAT_SESSION_CONFLICT, "Manus 执行已失效，不能继续提交答案");
+            }
+            log.info("Manus 补充答案已按会话顺序提交，chatId={}，executionId={}",
+                    chatId, session.executionId());
+            return manus.runStream(followupPrompt);
+        } finally {
+            releaseSessionExecutionLock(chatId, sessionLock);
+        }
     }
 
     ToolCallback[] selectToolsForPrompt(String prompt) {
@@ -209,12 +253,49 @@ public class ManusSessionService {
     }
 
     /**
+     * 原子增加会话锁引用后再获取互斥锁，保证等待中的请求与持锁请求始终使用同一对象。
+     */
+    private SessionExecutionLock acquireSessionExecutionLock(String chatId) {
+        SessionExecutionLock sessionLock = sessionExecutionLocks.compute(chatId, (key, existing) -> {
+            SessionExecutionLock current = existing == null ? new SessionExecutionLock() : existing;
+            current.referenceCount++;
+            return current;
+        });
+        sessionLock.lock.lock();
+        return sessionLock;
+    }
+
+    /**
+     * 释放互斥锁并原子减少引用；最后一个持有者或等待者退出后移除 chatId，避免锁表随历史
+     * 会话数量永久增长。引用在加锁前增加，因此不会把仍有等待请求的锁提前移除。
+     */
+    private void releaseSessionExecutionLock(String chatId, SessionExecutionLock sessionLock) {
+        sessionLock.lock.unlock();
+        sessionExecutionLocks.computeIfPresent(chatId, (key, current) -> {
+            if (current != sessionLock) {
+                return current;
+            }
+            current.referenceCount--;
+            return current.referenceCount == 0 ? null : current;
+        });
+    }
+
+    /**
+     * 会话锁及其引用计数。引用计数只在 ConcurrentHashMap.compute 临界区内修改。
+     */
+    private static final class SessionExecutionLock {
+        private final ReentrantLock lock = new ReentrantLock();
+        private int referenceCount;
+    }
+
+    /**
      * 将用户补充答案整理为可继续执行的跟进提示词。
      */
     private String buildFollowupPrompt(ManusSessionStore.ManusSession session, Map<String, String> answers) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("原始任务：\n").append(session.initialPrompt()).append("\n\n");
         prompt.append("用户补充信息如下：\n");
+        int acceptedAnswerCount = 0;
         if (session.pendingQuestions() != null) {
             for (ManusSessionStore.PendingQuestion question : session.pendingQuestions()) {
                 String answer = answers.get(question.id());
@@ -222,7 +303,11 @@ public class ManusSessionService {
                     continue;
                 }
                 prompt.append("- ").append(question.question()).append("：").append(answer).append("\n");
+                acceptedAnswerCount++;
             }
+        }
+        if (acceptedAnswerCount == 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAM, "未提交任何有效的 Manus 补充答案");
         }
         prompt.append("\n请基于以上已确认信息继续执行任务，不要重复提问；只有在确实缺少完成任务所必需的信息时，才再次调用 AskUserQuestionTool。");
         return prompt.toString();

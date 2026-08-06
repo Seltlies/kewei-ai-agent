@@ -13,6 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
 class BaseAgentTest {
 
@@ -90,8 +91,9 @@ class BaseAgentTest {
 
     @Test
     void shouldBuildTodoEventPayloadFromSessionStore() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "hello", null);
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "hello", null);
+        store.activateSession("chat-1", "execution-1");
         store.saveTodoSnapshot("chat-1", new TodoSnapshot(List.of(
                 new TodoItem("plan", "拆解任务", "completed"),
                 new TodoItem("build", "执行任务", "in_progress")
@@ -99,6 +101,7 @@ class BaseAgentTest {
         BaseAgent agent = new TestAgent();
         agent.setManusSessionStore(store);
         agent.setSessionId("chat-1");
+        agent.setExecutionId("execution-1");
 
         BaseAgent.TodoEventPayload payload = agent.buildTodoEventPayload();
 

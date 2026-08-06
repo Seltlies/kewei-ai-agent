@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kiwi.keweiaiagent.common.BaseResponse;
 import org.reactivestreams.Publisher;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
@@ -34,6 +35,7 @@ public class GlobalResponseBodyAdvice implements ResponseBodyAdvice<Object> {
             ServerHttpResponse response) {
         if (body instanceof SseEmitter
                 || body instanceof Publisher<?>
+                || body instanceof Resource
                 || MediaType.TEXT_EVENT_STREAM.includes(selectedContentType)) {
             return body;
         }

@@ -4,6 +4,7 @@ import com.kiwi.keweiaiagent.chatmemory.FileBaseChatMemory;
 import com.kiwi.keweiaiagent.chatmemory.MyRedisChatMemory;
 import com.kiwi.keweiaiagent.chatmemory.MySqlChatMemory;
 import com.kiwi.keweiaiagent.chatmemory.mapper.ChatMemoryMessageMapper;
+import com.kiwi.keweiaiagent.chat.mapper.ChatSessionMapper;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -17,8 +18,11 @@ public class ChatMemoryConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "app.chat-memory", name = "type", havingValue = "mysql")
-    public ChatMemory mysqlChatMemory(ChatMemoryMessageMapper chatMemoryMessageMapper) {
-        return new MySqlChatMemory(chatMemoryMessageMapper);
+    public ChatMemory mysqlChatMemory(
+            ChatMemoryMessageMapper chatMemoryMessageMapper,
+            ChatSessionMapper chatSessionMapper
+    ) {
+        return new MySqlChatMemory(chatMemoryMessageMapper, chatSessionMapper);
     }
 
     @Bean

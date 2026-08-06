@@ -173,7 +173,7 @@ class AiControllerTest {
         emitter.send(SseEmitter.event().name("question").data("{\"question\":\"what\"}"));
         emitter.send(SseEmitter.event().name("done").data("[DONE]"));
         emitter.complete();
-        when(manusSessionService.startChatStream(eq("chat-1"), eq("make one"))).thenReturn(emitter);
+        when(manusSessionService.startChatStream(eq(1L), eq("chat-1"), eq("make one"))).thenReturn(emitter);
 
         MvcResult mvcResult = mockMvc.perform(get("/ai/manus/chat")
                         .param("message", "make one")

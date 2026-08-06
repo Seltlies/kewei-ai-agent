@@ -9,13 +9,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.mock;
 
 class ManusSessionStoreTest {
 
     @Test
     void shouldSaveAndReadTodoSnapshotForSession() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我写一个计划", null);
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我写一个计划", null);
+        store.activateSession("chat-1", "execution-1");
         TodoSnapshot snapshot = new TodoSnapshot(List.of(
                 new TodoItem("plan", "列出方案", "completed"),
                 new TodoItem("build", "开始实现", "in_progress")
@@ -28,8 +30,9 @@ class ManusSessionStoreTest {
 
     @Test
     void shouldClearTodoSnapshotWhenSessionRemoved() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我写一个计划", null);
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我写一个计划", null);
+        store.activateSession("chat-1", "execution-1");
         store.saveTodoSnapshot("chat-1", new TodoSnapshot(List.of(
                 new TodoItem("plan", "列出方案", "completed")
         )));
@@ -41,14 +44,15 @@ class ManusSessionStoreTest {
 
     @Test
     void shouldNotifyTodoSnapshotListenersImmediately() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我写一个计划", null);
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我写一个计划", null);
+        store.activateSession("chat-1", "execution-1");
         TodoSnapshot snapshot = new TodoSnapshot(List.of(
                 new TodoItem("plan", "列出方案", "in_progress")
         ));
         AtomicReference<TodoSnapshot> received = new AtomicReference<>();
         ManusSessionStore.TodoSnapshotListener listener = received::set;
-        store.registerTodoSnapshotListener("chat-1", listener);
+        store.registerTodoSnapshotListener("execution-1", listener);
 
         store.saveTodoSnapshot("chat-1", snapshot);
 
@@ -57,10 +61,11 @@ class ManusSessionStoreTest {
 
     @Test
     void shouldRemoveTodoSnapshotListenersWithSession() {
-        ManusSessionStore store = new ManusSessionStore();
-        store.putSession("chat-1", "帮我写一个计划", null);
+        ManusSessionStore store = new ManusSessionStore(mock(ManusExecutionService.class));
+        store.putSession("chat-1", 1L, "execution-1", "帮我写一个计划", null);
+        store.activateSession("chat-1", "execution-1");
         AtomicReference<TodoSnapshot> received = new AtomicReference<>();
-        store.registerTodoSnapshotListener("chat-1", received::set);
+        store.registerTodoSnapshotListener("execution-1", received::set);
 
         store.removeSession("chat-1");
         store.saveTodoSnapshot("chat-1", new TodoSnapshot(List.of(

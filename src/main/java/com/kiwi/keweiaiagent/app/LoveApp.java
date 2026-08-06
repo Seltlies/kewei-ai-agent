@@ -10,6 +10,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.core.io.FileSystemResource;
@@ -27,7 +30,9 @@ import reactor.core.publisher.Flux;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
@@ -41,21 +46,48 @@ public class LoveApp {
         FILE
     }
 
-    public record SkillChatResult(SkillChatResultType type, String content, String filePath, String question) {
+    public record SkillChatResult(
+            SkillChatResultType type,
+            String content,
+            String filePath,
+            String question,
+            String attachmentId,
+            String contentUrl
+    ) {
         public static SkillChatResult text(String content) {
-            return new SkillChatResult(SkillChatResultType.TEXT, content, null, null);
+            return new SkillChatResult(SkillChatResultType.TEXT, content, null, null, null, null);
         }
 
         public static SkillChatResult question(String question) {
-            return new SkillChatResult(SkillChatResultType.QUESTION, null, null, question);
+            return new SkillChatResult(SkillChatResultType.QUESTION, null, null, question, null, null);
         }
 
         public static SkillChatResult file(String filePath) {
-            return new SkillChatResult(SkillChatResultType.FILE, null, filePath, null);
+            return new SkillChatResult(SkillChatResultType.FILE, null, filePath, null, null, null);
+        }
+
+        /**
+         * 将暂未提供受控下载能力的非图片文件转换为无服务器路径的完成结果。
+         */
+        public static SkillChatResult securedFile() {
+            return new SkillChatResult(SkillChatResultType.FILE, "文件已生成", null, null, null, null);
+        }
+
+        /**
+         * 将 AI 生成图片转换为受控附件响应，不再向浏览器返回服务器本地路径。
+         */
+        public static SkillChatResult attachment(String attachmentId, String contentUrl) {
+            return new SkillChatResult(
+                    SkillChatResultType.FILE, null, null, null, attachmentId, contentUrl);
         }
     }
 
     private final ChatClient chatClient;
+    /**
+     * 技能调用专用客户端不自动写入 ChatMemory。模型可能返回服务器本地文件路径，必须由
+     * 控制器完成附件登记后再显式保存受控结果，避免原始路径短暂或永久进入历史消息。
+     */
+    private final ChatClient skillChatClient;
     private final ChatMemory chatMemory;
     private final QueryPreprocessor queryPreprocessor;
     /**
@@ -94,19 +126,26 @@ public class LoveApp {
         this.queryPreprocessor = queryPreprocessor;
         this.memoryTools = memoryTools;
 
+        String systemPrompt = SYSTEM_PROMPT + "\n\n" + longTermMemoryPromptService.buildPrompt();
         chatClient = ChatClient.builder(chatModel)
-                .defaultSystem(SYSTEM_PROMPT + "\n\n" + longTermMemoryPromptService.buildPrompt())
+                .defaultSystem(systemPrompt)
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(this.chatMemory).build(),
                         new MyLoggerAdvisor(),
                         new ReReadingAdvisor()
                 )
                 .build();
+        skillChatClient = ChatClient.builder(chatModel)
+                .defaultSystem(systemPrompt)
+                // 技能模型可能返回服务器文件路径，此客户端不能使用会记录完整响应的日志 Advisor。
+                .defaultAdvisors(new ReReadingAdvisor())
+                .build();
         log.info("已使用百炼 DashScope ChatModel 初始化 LoveApp 聊天客户端");
     }
 
     LoveApp(ChatClient chatClient) {
         this.chatClient = chatClient;
+        this.skillChatClient = chatClient;
         this.chatMemory = null;
         this.queryPreprocessor = null;
         this.memoryTools = new ToolCallback[0];
@@ -153,13 +192,19 @@ public class LoveApp {
      * @param chatId
      * @return
      */
-    public String doChatWithImage(String message, String chatId, String imagePath){
+    public String doChatWithImage(String message, String chatId, String attachmentId, String imagePath){
         FileSystemResource imageResource = new FileSystemResource(imagePath);
         MediaType mediaType = MediaTypeFactory.getMediaType(imageResource)
                 .orElse(MediaType.IMAGE_PNG);
         ChatResponse chatResponse = chatClient
                 .prompt()
-                .user(u -> u.text(message).media(mediaType, imageResource))
+                // 记忆中只保存受控附件标识和访问地址，不保存服务器物理文件路径。
+                .user(u -> u.text(message)
+                        .metadata(Map.of(
+                                "attachmentId", attachmentId,
+                                "contentUrl", "/chat/attachments/" + attachmentId
+                        ))
+                        .media(mediaType, imageResource))
                 .advisors(a -> a.param(CONVERSATION_ID, chatId))
                 .toolCallbacks(memoryTools)
                 .call()
@@ -169,13 +214,24 @@ public class LoveApp {
         return content;
     }
 
-    public Flux<String> doChatWithImageStream(String message, String chatId, String imagePath){
+    public Flux<String> doChatWithImageStream(
+            String message,
+            String chatId,
+            String attachmentId,
+            String imagePath
+    ) {
         FileSystemResource imageResource = new FileSystemResource(imagePath);
         MediaType mediaType = MediaTypeFactory.getMediaType(imageResource)
                 .orElse(MediaType.IMAGE_PNG);
         return chatClient
                 .prompt()
-                .user(u -> u.text(message).media(mediaType, imageResource))
+                // 流式图片消息与同步入口使用相同的持久化元数据结构，页面可据此恢复图片。
+                .user(u -> u.text(message)
+                        .metadata(Map.of(
+                                "attachmentId", attachmentId,
+                                "contentUrl", "/chat/attachments/" + attachmentId
+                        ))
+                        .media(mediaType, imageResource))
                 .advisors(a -> a.param(CONVERSATION_ID, chatId))
                 .toolCallbacks(memoryTools)
                 .stream()
@@ -258,19 +314,25 @@ public class LoveApp {
     private ToolCallback[] allTools;
 
     public SkillChatResult callWithSkills(String message, String chatId) {
-        ChatResponse chatResponse = chatClient
+        // 先读取旧历史、再持久化本轮用户消息。模型异常或图片登记失败时仍保留用户输入，
+        // 但助手原始文件路径永远不会被 MessageChatMemoryAdvisor 自动写入数据库。
+        List<Message> history = chatMemory.get(chatId);
+        chatMemory.add(chatId, new UserMessage(message));
+        ChatResponse chatResponse = skillChatClient
                 .prompt()
+                .messages(history)
                 .user(message)
-                .advisors(a -> a.param(CONVERSATION_ID, chatId))
                 .toolCallbacks(allTools)
                 .toolCallbacks(SkillsTool.builder()
                         .addSkillsDirectory(resolveSkillsDirectory())
-                        .build())
+                .build())
                 .call()
                 .chatResponse();
-        log.info("skill chatResponse: {}", chatResponse);
         assert chatResponse != null;
-        return toSkillChatResult(chatResponse.getResult().getOutput().getText());
+        SkillChatResult result = toSkillChatResult(chatResponse.getResult().getOutput().getText());
+        // 日志只记录结果类型，不输出模型原文，避免生成文件的服务器路径进入日志系统。
+        log.info("技能模型调用完成，chatId={}，resultType={}", chatId, result.type());
+        return result;
     }
 
     public Flux<SkillChatResult> streamWithSkills(String message, String chatId) {
@@ -279,13 +341,47 @@ public class LoveApp {
 
     public String doChatWithTools(String message, String chatId){
         SkillChatResult result = callWithSkills(message, chatId);
+        saveSkillAssistantResult(chatId, result);
         if (result.type() == SkillChatResultType.FILE) {
-            return result.filePath();
+            return result.contentUrl() == null ? "文件已生成" : result.contentUrl();
         }
         if (result.type() == SkillChatResultType.QUESTION) {
             return result.question();
         }
         return result.content();
+    }
+
+    /**
+     * 在技能结果经过业务层安全处理后显式保存助手消息。图片只保存附件标识和受保护访问地址；
+     * 其他文件只记录通用完成文案，防止任何服务器本地路径进入可查询的聊天历史。
+     *
+     * @param chatId 服务端会话标识
+     * @param result 已完成安全处理的技能结果
+     */
+    public void saveSkillAssistantResult(String chatId, SkillChatResult result) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("messageKind", "SKILL_RESULT");
+        String content;
+        if (result.type() == SkillChatResultType.QUESTION) {
+            content = result.question() == null ? "" : result.question();
+            metadata.put("question", content);
+        } else if (result.type() == SkillChatResultType.FILE) {
+            if (result.attachmentId() != null && result.contentUrl() != null) {
+                content = result.contentUrl();
+                metadata.put("attachmentId", result.attachmentId());
+                metadata.put("contentUrl", result.contentUrl());
+            } else {
+                content = "文件已生成";
+            }
+        } else {
+            content = result.content() == null ? "" : result.content();
+        }
+        chatMemory.add(chatId, AssistantMessage.builder()
+                .content(content)
+                .properties(metadata)
+                .build());
+        log.info("技能助手结果已安全写入聊天历史，chatId={}，resultType={}，hasAttachment={}",
+                chatId, result.type(), result.attachmentId() != null);
     }
 
     // mcp 协议注入

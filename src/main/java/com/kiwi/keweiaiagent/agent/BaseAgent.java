@@ -43,7 +43,7 @@ public abstract class BaseAgent {
     /**
      * 当前智能体状态。
      */
-    private AgentState state = AgentState.IDLE;
+    private volatile AgentState state = AgentState.IDLE;
 
     /**
      * 当前执行到的步骤序号。
@@ -59,6 +59,11 @@ public abstract class BaseAgent {
      * 关联的会话标识，用于流式场景下恢复上下文。
      */
     private String sessionId;
+
+    /**
+     * 当前 Manus 执行的服务端 UUID，用于首个 SSE 事件告知页面本次执行身份。
+     */
+    private String executionId;
 
     /**
      * 会话存储组件，用于同步问题与待办快照。
@@ -94,7 +99,7 @@ public abstract class BaseAgent {
         // 执行循环逻辑
         List<String> results = new ArrayList<>();
         try {
-            for(int i = 0; i < maxSteps && state != AgentState.FINISHED; i++){
+            for(int i = 0; i < maxSteps && state == AgentState.RUNNING; i++){
                 currentStep = i + 1;
                 log.info("Agent {} executing step {}/{}", name, currentStep, maxSteps);
                 String stepResult = step();
@@ -102,7 +107,7 @@ public abstract class BaseAgent {
                 results.add(result);
             }
             // 如果达到最大步数，设置状态为完成
-            if(currentStep >= maxSteps){
+            if(currentStep >= maxSteps && state == AgentState.RUNNING){
                 state = AgentState.FINISHED;
                 results.add(String.format("Agent {} reached max steps", name));
             }
@@ -151,47 +156,90 @@ public abstract class BaseAgent {
             ManusSessionStore.TodoSnapshotListener todoListener = null;
             try {
                 if (activateSession) {
-                    manusSessionStore.activateSession(sessionId);
-                    todoListener = snapshot -> sendTodoEvent(sseEmitter, snapshot);
-                    manusSessionStore.registerTodoSnapshotListener(sessionId, todoListener);
-                    TodoSnapshot existingSnapshot = manusSessionStore.getTodoSnapshot(sessionId);
-                    if (existingSnapshot != null) {
-                        sendTodoEvent(sseEmitter, existingSnapshot);
+                    manusSessionStore.activateSession(sessionId, executionId);
+                    if (StringUtils.hasText(executionId)) {
+                        if (!manusSessionStore.isCurrentExecution(sessionId, executionId)) {
+                            throw new BusinessException(
+                                    ErrorCode.CHAT_SESSION_CONFLICT,
+                                    "Manus 执行已被新的执行中断"
+                            );
+                        }
+                        sseEmitter.send(SseEmitter.event()
+                                .name("execution")
+                                .data(new ExecutionEventPayload(executionId)));
+                        todoListener = snapshot -> sendTodoEvent(sseEmitter, snapshot);
+                        manusSessionStore.registerTodoSnapshotListener(executionId, todoListener);
+                        TodoSnapshot existingSnapshot = manusSessionStore.getTodoSnapshot(sessionId, executionId);
+                        if (existingSnapshot != null) {
+                            sendTodoEvent(sseEmitter, existingSnapshot);
+                        }
                     }
                 }
-                for(int i = 0; i < maxSteps && state != AgentState.FINISHED; i++){
+                for(int i = 0; i < maxSteps && state == AgentState.RUNNING; i++){
                     currentStep = i + 1;
                     log.info("Agent {} executing step {}/{}", name, currentStep, maxSteps);
                     String stepResult = (resumePendingStep && i == 0) ? resumeStep() : step();
                     String result = String.format("Step %d result: %s", currentStep, stepResult);
+                    if (activateSession) {
+                        manusSessionStore.saveAssistantMessage(sessionId, executionId, result);
+                    }
                     sseEmitter.send(SseEmitter.event().name("message").data(result));
                 }
                 // 如果达到最大步数，设置状态为完成
-                if(currentStep >= maxSteps && state != AgentState.FINISHED){
+                if(currentStep >= maxSteps && state == AgentState.RUNNING){
                     state = AgentState.FINISHED;
                     sseEmitter.send(SseEmitter.event()
                             .name("message")
                             .data(String.format("Agent %s reached max steps", name)));
                 }
+                if (state != AgentState.FINISHED) {
+                    throw new BusinessException(
+                            ErrorCode.CHAT_SESSION_CONFLICT,
+                            "Manus 执行已被新的执行中断"
+                    );
+                }
+                if (activateSession) {
+                    manusSessionStore.completeExecution(sessionId, executionId);
+                }
                 sseEmitter.send(SseEmitter.event().name("done").data("[DONE]"));
                 sseEmitter.complete();
             } catch (PendingUserQuestionException e) {
-                state = AgentState.WAITING_FOR_USER_INPUT;
-                sendQuestionEvent(sseEmitter, e);
-                sseEmitter.complete();
+                if (activateSession
+                        && !manusSessionStore.isCurrentExecution(sessionId, executionId)) {
+                    // 同一 chatId 已由新 execution 接管时，旧连接不能再切回等待态或发送问题事件。
+                    state = AgentState.ERROR;
+                    BusinessException conflict = new BusinessException(
+                            ErrorCode.CHAT_SESSION_CONFLICT,
+                            "Manus 执行已被新的执行中断"
+                    );
+                    log.info("旧 Manus 执行的问题事件已被丢弃，sessionId={}，executionId={}",
+                            sessionId, executionId);
+                    sendErrorEvent(sseEmitter, formatErrorMessage(conflict));
+                    sseEmitter.completeWithError(conflict);
+                } else {
+                    state = AgentState.WAITING_FOR_USER_INPUT;
+                    sendQuestionEvent(sseEmitter, e);
+                    sseEmitter.complete();
+                }
             } catch (BusinessException e) {
                 state = AgentState.ERROR;
                 log.error("Agent {} runStream failed: {}", name, e.getMessage(), e);
+                if (activateSession) {
+                    manusSessionStore.failExecution(sessionId, executionId, e.getMessage());
+                }
                 sendErrorEvent(sseEmitter, formatErrorMessage(e));
                 sseEmitter.completeWithError(e);
             } catch (Exception e) {
                 state = AgentState.ERROR;
                 log.error("Agent {} runStream unexpected error", name, e);
+                if (activateSession) {
+                    manusSessionStore.failExecution(sessionId, executionId, e.getMessage());
+                }
                 sendErrorEvent(sseEmitter, String.format("Agent %s error: %s", name, e.getMessage()));
                 sseEmitter.completeWithError(e);
             } finally {
                 if (activateSession && todoListener != null) {
-                    manusSessionStore.unregisterTodoSnapshotListener(sessionId, todoListener);
+                    manusSessionStore.unregisterTodoSnapshotListener(executionId, todoListener);
                 }
                 if (activateSession) {
                     manusSessionStore.clearActiveSession();
@@ -204,16 +252,18 @@ public abstract class BaseAgent {
 
         sseEmitter.onTimeout(()->{
             this.state = AgentState.ERROR;
+            if (manusSessionStore != null && StringUtils.hasText(sessionId)) {
+                manusSessionStore.failExecution(sessionId, executionId, "Manus 流式执行超时");
+            }
             this.cleanup();
                 log.warn("Agent {} runStream timed out", name);
                 sendErrorEvent(sseEmitter, String.format("Agent %s error: runStream timed out", name));
         });
 
         sseEmitter.onCompletion(()->{
-            if(state == AgentState.RUNNING){
-                this.state = AgentState.FINISHED;
-            }
-            if (state != AgentState.WAITING_FOR_USER_INPUT) {
+            // 工作线程负责最终状态和资源清理；客户端断开触发 onCompletion 时不能把仍在运行的
+            // 智能体误判为成功，也不能提前移除其会话状态。
+            if (state != AgentState.RUNNING && state != AgentState.WAITING_FOR_USER_INPUT) {
                 this.cleanup();
             }
                 log.info("Agent {} runStream completed with state {}", name, state);
@@ -261,10 +311,18 @@ public abstract class BaseAgent {
     private void sendQuestionEvent(SseEmitter sseEmitter, PendingUserQuestionException exception) {
         try {
             Object payload = exception.getQuestions();
-            if (manusSessionStore != null && StringUtils.hasText(sessionId)) {
-                payload = new QuestionEventPayload(manusSessionStore.getPendingQuestions(sessionId));
+            if (manusSessionStore != null
+                    && StringUtils.hasText(sessionId)
+                    && StringUtils.hasText(executionId)) {
+                List<ManusSessionStore.PendingQuestion> pendingQuestions =
+                        manusSessionStore.getPendingQuestions(sessionId, executionId);
+                if (pendingQuestions != null) {
+                    payload = pendingQuestions;
+                }
             }
-            sseEmitter.send(SseEmitter.event().name("question").data(payload));
+            sseEmitter.send(SseEmitter.event()
+                    .name("question")
+                    .data(new QuestionEventPayload(executionId, payload)));
         } catch (IOException ioException) {
             log.warn("Agent {} failed to send question event: {}", name, ioException.getMessage(), ioException);
         }
@@ -275,7 +333,7 @@ public abstract class BaseAgent {
      */
     private void sendTodoEvent(SseEmitter sseEmitter, TodoSnapshot snapshot) {
         try {
-            TodoEventPayload payload = new TodoEventPayload(snapshot);
+            TodoEventPayload payload = new TodoEventPayload(executionId, snapshot);
             if (payload != null) {
                 sseEmitter.send(SseEmitter.event().name("todo").data(payload));
             }
@@ -292,7 +350,7 @@ public abstract class BaseAgent {
         if (snapshot == null) {
             return null;
         }
-        return new TodoEventPayload(snapshot);
+        return new TodoEventPayload(executionId, snapshot);
     }
 
     /**
@@ -315,18 +373,24 @@ public abstract class BaseAgent {
         if ((state == AgentState.FINISHED || state == AgentState.ERROR)
                 && manusSessionStore != null
                 && StringUtils.hasText(sessionId)) {
-            manusSessionStore.removeSession(sessionId);
+            manusSessionStore.removeSession(sessionId, executionId);
         }
     }
 
     /**
-     * 待回答问题事件载荷，封装需要推送给前端的问题内容。
+     * 待回答问题事件载荷，携带 executionId 和问题内容，页面可过滤旧执行迟到的事件。
      */
-    public record QuestionEventPayload(Object questions) {}
+    public record QuestionEventPayload(String executionId, Object questions) {}
 
     /**
-     * 待办快照事件载荷，封装当前任务清单的推送数据。
+     * 待办快照事件载荷，同时携带 executionId 和当前任务清单，页面据此忽略已经被新执行
+     * 替换的旧连接事件。
      */
-    public record TodoEventPayload(TodoSnapshot todo) {}
+    public record TodoEventPayload(String executionId, TodoSnapshot todo) {}
+
+    /**
+     * Manus 执行标识事件，页面可用该标识关联后续 Todo、问题和终态。
+     */
+    public record ExecutionEventPayload(String executionId) {}
 
 }

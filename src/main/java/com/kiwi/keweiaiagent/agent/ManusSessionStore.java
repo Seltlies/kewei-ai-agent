@@ -1,19 +1,30 @@
 package com.kiwi.keweiaiagent.agent;
 
 import com.kiwi.keweiaiagent.agent.todo.TodoSnapshot;
+import com.kiwi.keweiaiagent.exception.BusinessException;
+import com.kiwi.keweiaiagent.exception.ErrorCode;
+import lombok.RequiredArgsConstructor;
 import org.springaicommunity.agent.tools.AskUserQuestionTool;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Manus 会话存储组件，负责保存会话状态、待答问题和待办快照。
  */
 @Component
+@RequiredArgsConstructor
 public class ManusSessionStore {
+
+    /**
+     * Manus 执行持久化服务，内存状态每次变化时同步写入 MySQL 和页面历史消息。
+     */
+    private final ManusExecutionService manusExecutionService;
 
     /**
      * 待办快照监听器接口，用于在会话待办列表变化时接收通知。
@@ -38,6 +49,8 @@ public class ManusSessionStore {
      */
     public record ManusSession(
             String chatId,
+            Long accountId,
+            String executionId,
             String initialPrompt,
             KeweiManus agent,
             List<AskUserQuestionTool.Question> rawPendingQuestions,
@@ -51,19 +64,31 @@ public class ManusSessionStore {
      */
     private final ConcurrentHashMap<String, ManusSession> sessions = new ConcurrentHashMap<>();
     /**
-     * 会话待办快照监听器集合。
+     * 执行级待办快照监听器集合。键使用 executionId 而不是 chatId，防止同一会话启动
+     * 新任务后，旧工作线程产生的 Todo 事件被推送到新任务的 SSE 连接。
      */
     private final ConcurrentHashMap<String, List<TodoSnapshotListener>> todoSnapshotListeners = new ConcurrentHashMap<>();
     /**
      * 当前线程正在处理的会话标识。
      */
-    private final ThreadLocal<String> currentSessionId = new ThreadLocal<>();
+    private final ThreadLocal<ExecutionContext> currentExecutionContext = new ThreadLocal<>();
 
     /**
      * 保存新的会话记录。
      */
-    public void putSession(String chatId, String initialPrompt, KeweiManus agent) {
-        sessions.put(chatId, new ManusSession(chatId, initialPrompt, agent, null, null, null, null));
+    public void putSession(
+            String chatId,
+            Long accountId,
+            String executionId,
+            String initialPrompt,
+            KeweiManus agent
+    ) {
+        ManusSession previous = sessions.put(chatId, new ManusSession(
+                chatId, accountId, executionId, initialPrompt, agent, null, null, null, null));
+        if (previous != null && previous.agent() != null) {
+            // 新执行接管同一会话前停止旧智能体，避免旧任务继续调用外部工具产生副作用。
+            previous.agent().setState(com.kiwi.keweiaiagent.agent.model.AgentState.ERROR);
+        }
     }
 
     /**
@@ -77,8 +102,23 @@ public class ManusSessionStore {
      * 移除指定会话及其关联监听器。
      */
     public void removeSession(String chatId) {
-        sessions.remove(chatId);
-        todoSnapshotListeners.remove(chatId);
+        ManusSession removed = sessions.remove(chatId);
+        if (removed != null && removed.executionId() != null) {
+            todoSnapshotListeners.remove(removed.executionId());
+        }
+    }
+
+    /**
+     * 仅当内存中的 executionId 仍属于当前智能体时移除会话，防止旧异步任务结束时误删
+     * 同一 chatId 下刚创建的新执行。
+     */
+    public void removeSession(String chatId, String executionId) {
+        ManusSession session = sessions.get(chatId);
+        if (session != null
+                && Objects.equals(session.executionId(), executionId)
+                && sessions.remove(chatId, session)) {
+            todoSnapshotListeners.remove(executionId);
+        }
     }
 
     /**
@@ -99,8 +139,24 @@ public class ManusSessionStore {
                     options
             ));
         }
-        sessions.computeIfPresent(chatId, (key, session) ->
-                new ManusSession(key, session.initialPrompt(), session.agent(), questions, pendingQuestions, session.pendingAnswers(), session.todoSnapshot()));
+        AtomicReference<ManusSession> updatedSession = new AtomicReference<>();
+        sessions.compute(chatId, (key, session) -> {
+            requireMatchingExecution(key, session);
+            ManusSession updated = new ManusSession(
+                        key,
+                        session.accountId(),
+                        session.executionId(),
+                        session.initialPrompt(),
+                        session.agent(),
+                        questions,
+                        pendingQuestions,
+                        session.pendingAnswers(),
+                        session.todoSnapshot()
+                );
+            updatedSession.set(updated);
+            return updated;
+        });
+        manusExecutionService.waitForUser(updatedSession.get(), pendingQuestions);
     }
 
     /**
@@ -108,7 +164,17 @@ public class ManusSessionStore {
      */
     public void submitAnswers(String chatId, Map<String, String> answers) {
         sessions.computeIfPresent(chatId, (key, session) ->
-                new ManusSession(key, session.initialPrompt(), session.agent(), session.rawPendingQuestions(), session.pendingQuestions(), answers, session.todoSnapshot()));
+                new ManusSession(
+                        key,
+                        session.accountId(),
+                        session.executionId(),
+                        session.initialPrompt(),
+                        session.agent(),
+                        session.rawPendingQuestions(),
+                        session.pendingQuestions(),
+                        answers,
+                        session.todoSnapshot()
+                ));
     }
 
     /**
@@ -119,7 +185,17 @@ public class ManusSessionStore {
         if (session == null || session.pendingAnswers() == null) {
             return null;
         }
-        sessions.put(chatId, new ManusSession(chatId, session.initialPrompt(), session.agent(), session.rawPendingQuestions(), session.pendingQuestions(), null, session.todoSnapshot()));
+        sessions.put(chatId, new ManusSession(
+                chatId,
+                session.accountId(),
+                session.executionId(),
+                session.initialPrompt(),
+                session.agent(),
+                session.rawPendingQuestions(),
+                session.pendingQuestions(),
+                null,
+                session.todoSnapshot()
+        ));
         if (session.pendingQuestions() == null || session.rawPendingQuestions() == null) {
             return session.pendingAnswers();
         }
@@ -139,16 +215,42 @@ public class ManusSessionStore {
      */
     public void clearPendingQuestions(String chatId) {
         sessions.computeIfPresent(chatId, (key, session) ->
-                new ManusSession(key, session.initialPrompt(), session.agent(), null, null, session.pendingAnswers(), session.todoSnapshot()));
+                new ManusSession(
+                        key,
+                        session.accountId(),
+                        session.executionId(),
+                        session.initialPrompt(),
+                        session.agent(),
+                        null,
+                        null,
+                        session.pendingAnswers(),
+                        session.todoSnapshot()
+                ));
     }
 
     /**
      * 保存并广播当前会话的待办快照。
      */
     public void saveTodoSnapshot(String chatId, TodoSnapshot todoSnapshot) {
-        sessions.computeIfPresent(chatId, (key, session) ->
-                new ManusSession(key, session.initialPrompt(), session.agent(), session.rawPendingQuestions(), session.pendingQuestions(), session.pendingAnswers(), todoSnapshot));
-        List<TodoSnapshotListener> listeners = todoSnapshotListeners.get(chatId);
+        AtomicReference<ManusSession> updatedSession = new AtomicReference<>();
+        sessions.compute(chatId, (key, session) -> {
+            requireMatchingExecution(key, session);
+            ManusSession updated = new ManusSession(
+                        key,
+                        session.accountId(),
+                        session.executionId(),
+                        session.initialPrompt(),
+                        session.agent(),
+                        session.rawPendingQuestions(),
+                        session.pendingQuestions(),
+                        session.pendingAnswers(),
+                        todoSnapshot
+                );
+            updatedSession.set(updated);
+            return updated;
+        });
+        manusExecutionService.saveTodo(updatedSession.get(), todoSnapshot);
+        List<TodoSnapshotListener> listeners = todoSnapshotListeners.get(updatedSession.get().executionId());
         if (listeners != null) {
             for (TodoSnapshotListener listener : List.copyOf(listeners)) {
                 listener.onTodoSnapshot(todoSnapshot);
@@ -162,21 +264,30 @@ public class ManusSessionStore {
     }
 
     /**
+     * 仅返回指定 executionId 仍为当前执行时的 Todo，防止延迟启动的旧线程读取新任务快照。
+     */
+    public TodoSnapshot getTodoSnapshot(String chatId, String executionId) {
+        ManusSession session = getSessionForExecution(chatId, executionId);
+        return session == null ? null : session.todoSnapshot();
+    }
+
+    /**
      * 将指定会话设置为当前线程的活跃会话。
      */
-    public void activateSession(String chatId) {
-        currentSessionId.set(chatId);
+    public void activateSession(String chatId, String executionId) {
+        currentExecutionContext.set(new ExecutionContext(chatId, executionId));
     }
 
     /**
      * 清理当前线程记录的活跃会话。
      */
     public void clearActiveSession() {
-        currentSessionId.remove();
+        currentExecutionContext.remove();
     }
 
     public String currentSessionId() {
-        return currentSessionId.get();
+        ExecutionContext context = currentExecutionContext.get();
+        return context == null ? null : context.chatId();
     }
 
     public List<PendingQuestion> getPendingQuestions(String chatId) {
@@ -185,10 +296,108 @@ public class ManusSessionStore {
     }
 
     /**
-     * 为指定会话注册待办快照监听器。
+     * 仅返回指定 executionId 仍为当前执行时的待答问题，避免旧 SSE 从相同 chatId 读取到
+     * 新任务的问题内容。
      */
-    public void registerTodoSnapshotListener(String chatId, TodoSnapshotListener listener) {
-        todoSnapshotListeners.compute(chatId, (key, existing) -> {
+    public List<PendingQuestion> getPendingQuestions(String chatId, String executionId) {
+        ManusSession session = getSessionForExecution(chatId, executionId);
+        return session == null ? null : session.pendingQuestions();
+    }
+
+    /**
+     * 判断指定执行是否仍是当前会话内存中的最新执行。
+     */
+    public boolean isCurrentExecution(String chatId, String executionId) {
+        return getSessionForExecution(chatId, executionId) != null;
+    }
+
+    /**
+     * 用户提交补充答案后，用新的智能体实例继续同一 executionId，并保留初始任务和 Todo。
+     */
+    public ManusSession prepareContinuation(
+            String chatId,
+            KeweiManus agent,
+            Map<String, String> answers
+    ) {
+        ManusSession session = sessions.get(chatId);
+        if (session == null) {
+            return null;
+        }
+        manusExecutionService.resumeExecution(session, answers);
+        ManusSession continued = new ManusSession(
+                chatId,
+                session.accountId(),
+                session.executionId(),
+                session.initialPrompt(),
+                agent,
+                null,
+                null,
+                null,
+                session.todoSnapshot()
+        );
+        sessions.put(chatId, continued);
+        return continued;
+    }
+
+    /**
+     * 保存已经推送给页面的 Manus 文本结果。
+     */
+    public void saveAssistantMessage(String chatId, String executionId, String content) {
+        ManusSession session = getSessionForExecution(chatId, executionId);
+        if (session != null) {
+            manusExecutionService.saveAssistantMessage(session, content);
+        }
+    }
+
+    /**
+     * 将内存中的活跃执行更新为完成状态。
+     */
+    public void completeExecution(String chatId, String executionId) {
+        ManusSession session = getSessionForExecution(chatId, executionId);
+        if (session == null) {
+            throw new BusinessException(ErrorCode.CHAT_SESSION_CONFLICT, "Manus 执行已被替换，不能标记完成");
+        }
+        manusExecutionService.completeExecution(session);
+    }
+
+    /**
+     * 将内存中的活跃执行更新为失败状态，并记录可展示的失败原因。
+     */
+    public void failExecution(String chatId, String executionId, String reason) {
+        ManusSession session = getSessionForExecution(chatId, executionId);
+        if (session != null) {
+            manusExecutionService.failExecution(session, reason);
+        }
+    }
+
+    public String getExecutionId(String chatId) {
+        ManusSession session = sessions.get(chatId);
+        return session == null ? null : session.executionId();
+    }
+
+    private ManusSession getSessionForExecution(String chatId, String executionId) {
+        ManusSession session = sessions.get(chatId);
+        return session != null && Objects.equals(session.executionId(), executionId) ? session : null;
+    }
+
+    private void requireMatchingExecution(String chatId, ManusSession session) {
+        ExecutionContext context = currentExecutionContext.get();
+        if (session == null
+                || context == null
+                || !Objects.equals(context.chatId(), chatId)
+                || !Objects.equals(context.executionId(), session.executionId())) {
+            throw new BusinessException(ErrorCode.CHAT_SESSION_CONFLICT, "Manus 执行已被新的执行替换");
+        }
+    }
+
+    private record ExecutionContext(String chatId, String executionId) {
+    }
+
+    /**
+     * 为指定 Manus 执行注册待办快照监听器。
+     */
+    public void registerTodoSnapshotListener(String executionId, TodoSnapshotListener listener) {
+        todoSnapshotListeners.compute(executionId, (key, existing) -> {
             List<TodoSnapshotListener> next = existing == null ? new ArrayList<>() : new ArrayList<>(existing);
             next.add(listener);
             return next;
@@ -196,10 +405,10 @@ public class ManusSessionStore {
     }
 
     /**
-     * 移除指定会话上的待办快照监听器。
+     * 移除指定 Manus 执行上的待办快照监听器。
      */
-    public void unregisterTodoSnapshotListener(String chatId, TodoSnapshotListener listener) {
-        todoSnapshotListeners.computeIfPresent(chatId, (key, existing) -> {
+    public void unregisterTodoSnapshotListener(String executionId, TodoSnapshotListener listener) {
+        todoSnapshotListeners.computeIfPresent(executionId, (key, existing) -> {
             List<TodoSnapshotListener> next = new ArrayList<>(existing);
             next.remove(listener);
             return next.isEmpty() ? null : next;

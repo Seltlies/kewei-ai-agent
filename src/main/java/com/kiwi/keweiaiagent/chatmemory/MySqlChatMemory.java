@@ -5,7 +5,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kiwi.keweiaiagent.chatmemory.entity.ChatMemoryMessageDO;
 import com.kiwi.keweiaiagent.chatmemory.mapper.ChatMemoryMessageMapper;
+import com.kiwi.keweiaiagent.chat.entity.ChatSessionDO;
+import com.kiwi.keweiaiagent.chat.mapper.ChatSessionMapper;
+import com.kiwi.keweiaiagent.exception.BusinessException;
+import com.kiwi.keweiaiagent.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -23,6 +28,7 @@ import java.util.Map;
  * 基于 MySQL 的聊天记忆实现，负责消息的数据库持久化。
  */
 @RequiredArgsConstructor
+@Slf4j
 public class MySqlChatMemory implements ChatMemory {
 
     /**
@@ -34,6 +40,12 @@ public class MySqlChatMemory implements ChatMemory {
      * 聊天记忆消息数据访问接口。
      */
     private final ChatMemoryMessageMapper chatMemoryMessageMapper;
+
+    /**
+     * 会话数据访问接口，用于阻止不存在的 conversationId 产生孤立消息。账号所有权由进入
+     * AI Service 前的 ChatSessionService 联合校验，本组件再执行数据库存在性防线。
+     */
+    private final ChatSessionMapper chatSessionMapper;
 
     /**
      * 向数据库中追加指定会话的消息记录。
@@ -51,6 +63,7 @@ public class MySqlChatMemory implements ChatMemory {
         if (messages == null || messages.isEmpty()) {
             return;
         }
+        requireExistingSession(conversationId);
         for (Message message : messages) {
             ChatMemoryMessageDO record = new ChatMemoryMessageDO();
             record.setConversationId(conversationId);
@@ -64,6 +77,7 @@ public class MySqlChatMemory implements ChatMemory {
      */
     @Override
     public synchronized List<Message> get(String conversationId) {
+        requireExistingSession(conversationId);
         LambdaQueryWrapper<ChatMemoryMessageDO> queryWrapper = new LambdaQueryWrapper<ChatMemoryMessageDO>()
                 .eq(ChatMemoryMessageDO::getConversationId, conversationId)
                 .orderByAsc(ChatMemoryMessageDO::getId);
@@ -78,9 +92,24 @@ public class MySqlChatMemory implements ChatMemory {
      */
     @Override
     public synchronized void clear(String conversationId) {
+        requireExistingSession(conversationId);
         LambdaQueryWrapper<ChatMemoryMessageDO> queryWrapper = new LambdaQueryWrapper<ChatMemoryMessageDO>()
                 .eq(ChatMemoryMessageDO::getConversationId, conversationId);
         chatMemoryMessageMapper.delete(queryWrapper);
+    }
+
+    /**
+     * 仅允许已由服务端登记的正式会话访问消息表，配合数据库外键形成双重约束。
+     */
+    private void requireExistingSession(String conversationId) {
+        Long count = chatSessionMapper.selectCount(
+                new LambdaQueryWrapper<ChatSessionDO>()
+                        .eq(ChatSessionDO::getSessionId, conversationId)
+        );
+        if (count != 1L) {
+            log.warn("聊天记忆拒绝不存在的会话，conversationId={}", conversationId);
+            throw new BusinessException(ErrorCode.CHAT_SESSION_NOT_FOUND);
+        }
     }
 
     /**

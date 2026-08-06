@@ -14,8 +14,11 @@ public enum ErrorCode {
     ACCOUNT_OR_PASSWORD_ERROR(40101, "账号或密码错误", HttpStatus.UNAUTHORIZED),
     FORBIDDEN(40300, "当前账号无权执行该操作", HttpStatus.FORBIDDEN),
     ACCOUNT_DISABLED(40301, "账号已停用，请联系管理员", HttpStatus.FORBIDDEN),
+    CHAT_SESSION_NOT_FOUND(40401, "会话不存在", HttpStatus.NOT_FOUND),
+    CHAT_ATTACHMENT_NOT_FOUND(40402, "附件不存在", HttpStatus.NOT_FOUND),
     ACCOUNT_EXISTS(40901, "该账号已存在，请更换账号", HttpStatus.CONFLICT),
     BOOTSTRAP_ADMIN_INVALID(40902, "初始 admin 配置不符合要求", HttpStatus.CONFLICT),
+    CHAT_SESSION_CONFLICT(40903, "会话状态冲突", HttpStatus.CONFLICT),
 
     AGENT_RUN_FAILED(50010, "Agent执行失败", HttpStatus.INTERNAL_SERVER_ERROR),
     SYSTEM_ERROR(50000, "系统异常", HttpStatus.INTERNAL_SERVER_ERROR);
