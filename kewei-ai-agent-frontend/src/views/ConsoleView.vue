@@ -17,11 +17,11 @@
           <h3>会话管理</h3>
         </template>
         <div class="session-list">
-          <div v-for="id in store.chatIds" :key="id" class="session-item">
-            <span>{{ id }}</span>
+          <div v-for="session in store.sessions" :key="session.sessionId" class="session-item">
+            <span>{{ session.title }} · {{ session.sessionId }}</span>
             <div>
-              <button class="btn-mini" type="button" @click="store.switchChatId(id)">使用</button>
-              <button class="btn-mini" type="button" @click="copy(id)">复制</button>
+              <button class="btn-mini" type="button" @click="store.selectSession(session)">使用</button>
+              <button class="btn-mini" type="button" @click="copy(session.sessionId)">复制</button>
             </div>
           </div>
         </div>
@@ -79,20 +79,36 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import GlassCard from '../components/GlassCard.vue'
 import { getHealth } from '../api/modules/health'
 import { loveChatSync } from '../api/modules/ai'
-import { openSSE } from '../api/sse'
+import { listChatSessions } from '../api/modules/chat'
+import { openFetchSSE } from '../api/sse'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 const store = useAppStore()
+const authStore = useAuthStore()
+const router = useRouter()
 const debugOutput = ref('')
 const health = reactive({ ok: false, label: 'unknown', time: '' })
 const debug = reactive({
   mode: 'sync',
   chatId: store.currentChatId,
   message: '你好，介绍一下你的平台能力。',
+})
+
+onMounted(async () => {
+  try {
+    await authStore.ensureCsrfToken()
+    const response = await listChatSessions()
+    store.sessions = response.data?.items || []
+  } catch (error) {
+    await handleConsoleSecurityError(error)
+    authStore.showNotice(error.message || '会话列表加载失败')
+  }
 })
 
 async function checkHealth() {
@@ -115,6 +131,7 @@ async function runDebug() {
   debugOutput.value = ''
   const start = Date.now()
   try {
+    await authStore.ensureCsrfToken()
     if (debug.mode === 'sync') {
       const res = await loveChatSync({ message: debug.message, chatId: debug.chatId || store.currentChatId })
       debugOutput.value = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2)
@@ -145,7 +162,8 @@ async function runDebug() {
         }, 45000)
       }
 
-      const conn = openSSE({
+      // 后端聊天流统一为 POST，请求通过 Fetch 同时携带 Session Cookie 与内存中的 CSRF Token。
+      const conn = openFetchSSE({
         path:
           debug.mode === 'sse'
             ? '/ai/love_app/chat/sse'
@@ -154,9 +172,9 @@ async function runDebug() {
               : '/ai/manus/chat',
         params:
           debug.mode === 'manus'
-            ? { message: debug.message }
+            ? { message: debug.message, chatId: debug.chatId || store.currentChatId }
             : { message: debug.message, chatId: debug.chatId || store.currentChatId },
-        withNamedEvents: debug.mode === 'sse_emitter',
+        method: 'POST',
         onOpen: () => {
           refreshIdleTimeout()
         },
@@ -186,6 +204,25 @@ async function runDebug() {
   } catch (error) {
     debugOutput.value = error.message
     store.addLog({ endpoint: debug.mode, status: 'error', elapsed: Date.now() - start, message: error.message })
+    await handleConsoleSecurityError(error)
+  }
+}
+
+/**
+ * Console 请求返回未认证或无权限时复核服务端身份，并在角色已失效时立即离开管理页面。
+ */
+async function handleConsoleSecurityError(error) {
+  if (error?.status === 401) {
+    authStore.expireAuthentication('/console')
+    await router.replace('/')
+    return
+  }
+  if (error?.status === 403) {
+    await authStore.revalidateAfterForbidden()
+    if (!authStore.isAdmin) {
+      authStore.showNotice('当前账号无 Console 访问权限')
+      await router.replace('/')
+    }
   }
 }
 

@@ -44,6 +44,10 @@ p {
   padding-bottom: 40px;
 }
 
+.main-shell.is-chat-shell {
+  width: min(1840px, calc(100vw - 64px));
+}
+
 .top-nav {
   position: sticky;
   top: 0;
@@ -54,7 +58,7 @@ p {
 }
 
 .top-nav-inner {
-  width: min(1200px, calc(100vw - 32px));
+  width: min(1840px, calc(100vw - 64px));
   margin: 0 auto;
   padding: 14px 0;
   display: flex;
@@ -66,12 +70,94 @@ p {
 .brand {
   font-weight: 800;
   letter-spacing: 0.3px;
+  font-size: 22px;
 }
 
 .nav-links {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.nav-auth-button {
+  min-width: 100px;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nav-auth-button.is-secondary {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-main);
+}
+
+.nav-auth-button.is-primary {
+  border: 1px solid var(--primary);
+  background: var(--primary-deep);
+  color: #fff;
+}
+
+.account-pill {
+  min-width: 0;
+  max-width: 230px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 6px 14px 6px 8px;
+}
+
+.account-avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: #fff;
+  font-weight: 800;
+}
+
+.account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.global-toast {
+  position: fixed;
+  z-index: 150;
+  left: 50%;
+  top: 86px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 32px));
+  border: 1px solid rgba(229, 103, 67, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 252, 247, 0.98);
+  box-shadow: var(--shadow-soft);
+  color: var(--text-main);
+  padding: 10px 20px;
+  font-weight: 700;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px);
 }
 
 .nav-link {
@@ -272,6 +358,10 @@ select:focus {
     width: calc(100vw - 20px);
   }
 
+  .main-shell.is-chat-shell {
+    width: calc(100vw - 20px);
+  }
+
   .grid-3,
   .grid-2 {
     grid-template-columns: 1fr;
@@ -279,5 +369,15 @@ select:focus {
 
   .nav-links {
     width: 100%;
+  }
+
+  .top-nav-inner {
+    width: calc(100vw - 20px);
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .account-pill {
+    max-width: min(220px, calc(100vw - 150px));
   }
 }

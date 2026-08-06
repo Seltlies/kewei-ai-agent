@@ -11,7 +11,7 @@
           <div class="hero-cta">
             <RouterLink class="btn" to="/chat">立即开始对话</RouterLink>
             <RouterLink class="btn-outline" :to="{ path: '/chat', query: { app: 'manus' } }">体验 Manus</RouterLink>
-            <RouterLink class="btn-outline" to="/console">打开控制台</RouterLink>
+            <RouterLink v-if="authStore.isAdmin" class="btn-outline" to="/console">打开控制台</RouterLink>
           </div>
         </div>
         <div class="hero-visual">
@@ -61,7 +61,7 @@
         <div class="hero-cta">
           <RouterLink class="btn" to="/chat">进入 Chat</RouterLink>
           <RouterLink class="btn-outline" :to="{ path: '/chat', query: { app: 'manus' } }">打开 Manus</RouterLink>
-          <RouterLink class="btn-outline" to="/console">查看系统状态</RouterLink>
+          <RouterLink v-if="authStore.isAdmin" class="btn-outline" to="/console">查看系统状态</RouterLink>
         </div>
       </GlassCard>
     </RevealBlock>
@@ -72,6 +72,9 @@
 import { RouterLink } from 'vue-router'
 import GlassCard from '../components/GlassCard.vue'
 import RevealBlock from '../components/RevealBlock.vue'
+import { useAuthStore } from '../stores/auth'
+
+const authStore = useAuthStore()
 
 const capabilities = [
   { title: '多 Agent 协同', desc: '为不同应用定义专属提示词、上下文和能力边界。' },

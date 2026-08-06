@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { API_BASE_URL } from './constants'
+import { getCsrfHeaders } from './csrf'
 
 const friendlyError = {
   timeout: '请求超时（后端处理较慢），建议重试或切换 SSE 流式模式',
@@ -21,10 +22,15 @@ function normalizePayload(raw) {
 export const http = axios.create({
   baseURL: API_BASE_URL,
   timeout: 120000,
+  withCredentials: true,
 })
 
 http.interceptors.request.use((config) => {
   config.metadata = { start: Date.now() }
+  const method = String(config.method || 'get').toLowerCase()
+  if (!['get', 'head', 'options'].includes(method)) {
+    Object.assign(config.headers, getCsrfHeaders())
+  }
   return config
 })
 
@@ -54,12 +60,15 @@ http.interceptors.response.use(
     }
   },
   (error) => {
+    const responseData = normalizePayload(error.response?.data)
+    error.status = error.response?.status
+    error.businessCode = responseData?.code
     if (error.code === 'ECONNABORTED') {
       error.message = friendlyError.timeout
     } else if (!error.response) {
       error.message = friendlyError.network
     } else {
-      error.message = error.response?.data?.message || friendlyError.server
+      error.message = responseData?.message || friendlyError.server
     }
     return Promise.reject(error)
   },

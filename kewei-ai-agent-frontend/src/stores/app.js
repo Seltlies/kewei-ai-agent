@@ -1,25 +1,18 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
-import { randomChatId } from '../utils/uid'
-
-const STORAGE_CHAT_IDS = 'kewei.ai.chat.ids'
-const STORAGE_CURRENT_CHAT_ID = 'kewei.ai.chat.current'
-
-function readList(key, fallback = []) {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || 'null')
-    return Array.isArray(parsed) ? parsed : fallback
-  } catch {
-    return fallback
-  }
-}
+import { computed, ref } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   const activeApp = ref('love')
   const chatMode = ref('sync')
-  const chatIds = ref(readList(STORAGE_CHAT_IDS, [randomChatId()]))
-  const currentChatId = ref(localStorage.getItem(STORAGE_CURRENT_CHAT_ID) || chatIds.value[0])
+  const sessions = ref([])
+  const currentSession = ref(null)
+  const sessionKeyword = ref('')
+  const nextCursor = ref('')
+  const hasMoreSessions = ref(false)
+  const sessionsLoading = ref(false)
+  const accountStateVersion = ref(0)
   const logs = ref([])
+  const currentChatId = computed(() => currentSession.value?.sessionId || '')
 
   function setActiveApp(app) {
     activeApp.value = app
@@ -29,22 +22,43 @@ export const useAppStore = defineStore('app', () => {
     chatMode.value = mode
   }
 
-  function switchChatId(chatId) {
-    if (!chatId) return
-    currentChatId.value = chatId
-    addChatId(chatId)
+  /**
+   * 选择服务端正式会话，并依据会话应用同步页面应用入口。
+   */
+  function selectSession(session) {
+    currentSession.value = session || null
+    if (session?.appCode === 'MANUS') activeApp.value = 'manus'
+    if (session?.appCode === 'LOVE_APP') activeApp.value = 'love'
   }
 
-  function addChatId(chatId) {
-    if (!chatId) return
-    const next = [chatId, ...chatIds.value.filter((id) => id !== chatId)].slice(0, 12)
-    chatIds.value = next
+  /**
+   * 新建操作只清空当前正式会话，保留所选应用形成空白草稿，不向服务端写入数据。
+   */
+  function startDraft() {
+    currentSession.value = null
   }
 
-  function createNewChatId() {
-    const id = randomChatId()
-    switchChatId(id)
-    return id
+  /**
+   * 将刚创建或更新的会话放到列表首位，保证当前会话状态与左侧列表同步。
+   */
+  function upsertSession(session) {
+    if (!session?.sessionId) return
+    sessions.value = [session, ...sessions.value.filter((item) => item.sessionId !== session.sessionId)]
+    selectSession(session)
+  }
+
+  /**
+   * 账号退出、切换或认证失效时清空全部账号相关页面状态，日志也不跨账号保留。
+   */
+  function resetAccountState() {
+    sessions.value = []
+    currentSession.value = null
+    sessionKeyword.value = ''
+    nextCursor.value = ''
+    hasMoreSessions.value = false
+    sessionsLoading.value = false
+    logs.value = []
+    accountStateVersion.value += 1
   }
 
   function addLog(log) {
@@ -60,25 +74,24 @@ export const useAppStore = defineStore('app', () => {
     logs.value = []
   }
 
-  watch(chatIds, (val) => {
-    localStorage.setItem(STORAGE_CHAT_IDS, JSON.stringify(val))
-  }, { deep: true })
-
-  watch(currentChatId, (val) => {
-    localStorage.setItem(STORAGE_CURRENT_CHAT_ID, val)
-  })
-
   return {
     activeApp,
     chatMode,
-    chatIds,
+    sessions,
+    currentSession,
     currentChatId,
+    sessionKeyword,
+    nextCursor,
+    hasMoreSessions,
+    sessionsLoading,
+    accountStateVersion,
     logs,
     setActiveApp,
     setChatMode,
-    switchChatId,
-    addChatId,
-    createNewChatId,
+    selectSession,
+    startDraft,
+    upsertSession,
+    resetAccountState,
     addLog,
     clearLogs,
   }
