@@ -21,11 +21,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => currentAccount.value?.role === 'ADMIN')
 
   /**
-   * 应用启动时只恢复服务端 Session 中的当前账号。未登录的 401 是正常访客状态，
-   * 不主动弹出登录框；真正进入受限路由时再由路由守卫决定交互。
+   * 应用启动时恢复服务端 Session 中的当前账号；进入 admin 页面时可强制刷新一次最新角色。
+   * 未登录的 401 是正常访客状态，不主动弹出登录框，由受限路由决定后续交互。
    */
-  async function initialize() {
-    if (initialized.value) return currentAccount.value
+  async function initialize(forceRefresh = false) {
+    if (initialized.value && !forceRefresh) return currentAccount.value
     if (initializePromise) return initializePromise
     initializing.value = true
     initializePromise = (async () => {
@@ -33,6 +33,12 @@ export const useAuthStore = defineStore('auth', () => {
         const response = await getCurrentAccount()
         currentAccount.value = response.data
         await refreshCsrfToken()
+        if (forceRefresh) {
+          console.info('[认证] 进入 admin 页面前已刷新服务端角色', {
+            accountId: response.data?.accountId,
+            role: response.data?.role,
+          })
+        }
       } catch (error) {
         if (error.status !== 401) {
           showNotice(error.message || '登录状态恢复失败')

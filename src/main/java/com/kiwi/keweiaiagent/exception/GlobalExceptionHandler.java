@@ -11,6 +11,7 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice(basePackages = "com.kiwi.keweiaiagent.controller")
 public class GlobalExceptionHandler {
@@ -45,6 +46,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse<Void>> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
         return ResponseEntity.badRequest()
                 .body(BaseResponse.fail(ErrorCode.REQUEST_BODY_FORMAT_ERROR));
+    }
+
+    /**
+     * 路径参数或独立查询参数类型错误时返回稳定的 400 响应，避免非法账号 ID 等输入穿透为 500。
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException e
+    ) {
+        String requiredType = e.getRequiredType() == null ? "unknown" : e.getRequiredType().getSimpleName();
+        log.warn("请求参数类型绑定失败，parameter={}，requiredType={}", e.getName(), requiredType);
+        return ResponseEntity.badRequest()
+                .body(BaseResponse.fail(ErrorCode.PARAM_BIND_ERROR));
     }
 
     @ExceptionHandler(Exception.class)

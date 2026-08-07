@@ -31,11 +31,12 @@ const router = createRouter({
 })
 
 /**
- * 路由进入前恢复服务端身份，并在业务组件渲染前阻止访客进入 Chat、普通用户进入 Console。
+ * 路由进入前恢复服务端身份；进入 Console 时强制读取一次最新角色，使其他 admin 刚完成的
+ * 角色调整无需目标账号重新登录即可影响页面权限。
  */
 router.beforeEach(async (to) => {
   const authStore = useAuthStore(pinia)
-  await authStore.initialize()
+  await authStore.initialize(Boolean(to.meta.requiresAdmin))
 
   if (to.meta.requiresAdmin && !authStore.isAuthenticated) {
     authStore.showNotice('请先登录后访问')

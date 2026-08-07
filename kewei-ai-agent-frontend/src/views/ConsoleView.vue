@@ -1,5 +1,13 @@
 <template>
   <div class="page console-page">
+    <section class="console-heading">
+      <p>ADMIN CONSOLE</p>
+      <h1>Console 管理中心</h1>
+      <span>仅 admin 可见 · 管理平台账号角色与可用状态</span>
+    </section>
+
+    <AccountManagement />
+
     <div class="grid-2">
       <GlassCard>
         <template #header>
@@ -82,6 +90,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GlassCard from '../components/GlassCard.vue'
+import AccountManagement from '../components/AccountManagement.vue'
 import { getHealth } from '../api/modules/health'
 import { loveChatSync } from '../api/modules/ai'
 import { listChatSessions } from '../api/modules/chat'
@@ -241,6 +250,28 @@ async function copy(text) {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.console-heading {
+  padding: 8px 8px 4px;
+}
+
+.console-heading p {
+  color: var(--primary-deep);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.console-heading h1 {
+  margin-top: 5px;
+  font-size: clamp(30px, 4vw, 42px);
+}
+
+.console-heading span {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-subtle);
 }
 
 .actions {
