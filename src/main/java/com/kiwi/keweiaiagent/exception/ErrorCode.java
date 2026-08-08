@@ -23,6 +23,7 @@ public enum ErrorCode {
     ADMIN_SELF_MODIFICATION(40904, "不能调整当前账号", HttpStatus.CONFLICT),
     LAST_ACTIVE_ADMIN(40905, "系统必须保留至少一个正常状态的 admin", HttpStatus.CONFLICT),
     ACCOUNT_UPDATE_CONFLICT(40906, "账号状态已发生变化，请刷新后重试", HttpStatus.CONFLICT),
+    UPLOAD_TOO_LARGE(41301, "单张图片不能超过 10 MB", HttpStatus.PAYLOAD_TOO_LARGE),
 
     AGENT_RUN_FAILED(50010, "Agent执行失败", HttpStatus.INTERNAL_SERVER_ERROR),
     SYSTEM_ERROR(50000, "系统异常", HttpStatus.INTERNAL_SERVER_ERROR);

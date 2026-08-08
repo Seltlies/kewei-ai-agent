@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice(basePackages = "com.kiwi.keweiaiagent.controller")
 public class GlobalExceptionHandler {
@@ -59,6 +60,19 @@ public class GlobalExceptionHandler {
         log.warn("请求参数类型绑定失败，parameter={}，requiredType={}", e.getName(), requiredType);
         return ResponseEntity.badRequest()
                 .body(BaseResponse.fail(ErrorCode.PARAM_BIND_ERROR));
+    }
+
+    /**
+     * Multipart 文件在进入 Controller 参数绑定前由 Servlet 容器检查大小。这里单独处理上传超限异常，
+     * 返回稳定的 413 响应和明确提示，避免被通用异常处理器包装成无法定位原因的系统异常。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMaxUploadSizeExceededException(
+            MaxUploadSizeExceededException e
+    ) {
+        log.warn("聊天图片上传超过 10 MB 限制，maxUploadSize={}", e.getMaxUploadSize());
+        return ResponseEntity.status(ErrorCode.UPLOAD_TOO_LARGE.getHttpStatus())
+                .body(BaseResponse.fail(ErrorCode.UPLOAD_TOO_LARGE));
     }
 
     @ExceptionHandler(Exception.class)

@@ -34,6 +34,12 @@ spring:
         # Spring Boot 4 使用 data.redis 层级配置 Redis Session，并以独立命名空间隔离认证会话。
         namespace: kewei:auth:session
         repository-type: default
+  servlet:
+    multipart:
+      # Servlet 容器的单文件限制必须与聊天附件 10 MB 业务上限一致，否则合法图片会在进入 Controller 前被拒绝。
+      max-file-size: 10MB
+      # Multipart 请求还包含边界、文件名和请求头，故总请求限制需要略高于单文件限制。
+      max-request-size: 12MB
   autoconfigure:
     exclude:
       # 项目只使用自建 MySQL 账号与 Redis Session，禁止生成默认内存用户及随机开发密码。
