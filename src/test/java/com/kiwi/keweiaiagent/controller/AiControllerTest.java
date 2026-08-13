@@ -5,7 +5,6 @@ import com.kiwi.keweiaiagent.agent.ManusSessionService;
 import com.kiwi.keweiaiagent.app.LoveApp;
 import com.kiwi.keweiaiagent.app.TodoDemoApp;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -38,9 +37,6 @@ class AiControllerTest {
 
     @MockitoBean
     private LoveApp loveApp;
-
-    @MockitoBean
-    private ChatModel ollamaChatModel;
 
     @MockitoBean
     private ManusSessionService manusSessionService;

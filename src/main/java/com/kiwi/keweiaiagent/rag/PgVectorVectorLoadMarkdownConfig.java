@@ -1,6 +1,7 @@
 package com.kiwi.keweiaiagent.rag;
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 @Configuration
+@Slf4j
 public class PgVectorVectorLoadMarkdownConfig {
 
     private static final Pattern SAFE_TABLE_NAME = Pattern.compile("^[a-zA-Z0-9_]+$");
@@ -42,6 +44,14 @@ public class PgVectorVectorLoadMarkdownConfig {
     @Resource
     private MyKeywordEnricher myKeywordEnricher;
 
+    /**
+     * 创建应用启动后的 PgVector 增量加载任务。任务通过 {@link LoveAppDocumentLoader}
+     * 读取知识库文档，为正文计算 SHA-256，并调用 {@code existsByContentHash} 执行
+     * 参数化 SELECT 去重；仅对新增文档调用 {@link MyKeywordEnricher#enrichDocument(List)}
+     * 和 {@link PgVectorStore#add(List)}，完成百炼关键词增强、向量化及 PgVector 写入。
+     *
+     * @return 应用启动后执行一次的 PgVector 增量加载器
+     */
     @Bean
     public ApplicationRunner pgVectorVectorStoreConfig() {
         return new ApplicationRunner() {
@@ -49,6 +59,7 @@ public class PgVectorVectorLoadMarkdownConfig {
             public void run(ApplicationArguments args) {
                 List<Document> loadedDocuments = loveAppDocumentLoader.loadMarkdown();
                 List<Document> newDocuments = new ArrayList<>();
+                log.info("开始检查 PgVector 知识库增量文档，数据表={}，加载文档数量={}", tableName, loadedDocuments.size());
 
                 for (Document document : loadedDocuments) {
                     String contentHash = sha256Hex(extractDocumentText(document));
@@ -61,8 +72,12 @@ public class PgVectorVectorLoadMarkdownConfig {
                 }
 
                 if (!newDocuments.isEmpty()) {
+                    log.info("开始使用百炼模型增强并写入 PgVector，新增文档数量={}", newDocuments.size());
                     List<Document> enrichedDocument = myKeywordEnricher.enrichDocument(newDocuments);
                     pgVectorStore.add(enrichedDocument);
+                    log.info("百炼模型向量化及 PgVector 写入完成，新增文档数量={}", enrichedDocument.size());
+                } else {
+                    log.info("PgVector 知识库没有新增文档，无需调用百炼模型写入向量");
                 }
             }
         };

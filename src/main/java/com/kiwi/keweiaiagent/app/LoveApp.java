@@ -69,8 +69,19 @@ public class LoveApp {
             "恋爱状态询问沟通、习惯差异引发的矛盾；已婚状态询问家庭责任与亲属关系处理的问题。" +
             "引导用户详述事情经过、对方反应及自身想法，以便给出专属解决方案。";
 
+    /**
+     * 使用 Spring 容器提供的百炼聊天模型创建应用级 {@link ChatClient}，并装配会话记忆、
+     * 查询预处理、长期记忆提示词和记忆工具。聊天模型的具体端点与模型名称统一由
+     * {@code spring.ai.dashscope} 配置管理，业务代码不直接持有 API Key。
+     *
+     * @param chatModel 百炼 DashScope 聊天模型
+     * @param chatMemory 会话记忆组件
+     * @param queryPreprocessor RAG 查询预处理组件
+     * @param longTermMemoryPromptService 长期记忆提示词服务
+     * @param memoryTools 长期记忆工具集合
+     */
     @Autowired
-    public LoveApp(ChatModel ollamaChatModel,
+    public LoveApp(ChatModel chatModel,
                    ChatMemory chatMemory,
                    QueryPreprocessor queryPreprocessor,
                    LongTermMemoryPromptService longTermMemoryPromptService,
@@ -83,7 +94,7 @@ public class LoveApp {
         this.queryPreprocessor = queryPreprocessor;
         this.memoryTools = memoryTools;
 
-        chatClient = ChatClient.builder(ollamaChatModel)
+        chatClient = ChatClient.builder(chatModel)
                 .defaultSystem(SYSTEM_PROMPT + "\n\n" + longTermMemoryPromptService.buildPrompt())
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(this.chatMemory).build(),
@@ -91,6 +102,7 @@ public class LoveApp {
                         new ReReadingAdvisor()
                 )
                 .build();
+        log.info("已使用百炼 DashScope ChatModel 初始化 LoveApp 聊天客户端");
     }
 
     LoveApp(ChatClient chatClient) {

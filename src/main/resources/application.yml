@@ -1,28 +1,60 @@
 spring:
+  config:
+    import:
+      # 独立的首个配置文档先强制加载本机 .env，使后续文档解析 Nacos URI 时能够取得全部 NACOS_* 参数。
+      - file:./.env[.properties]
+
+---
+
+spring:
   application:
     name: kewei-ai-agent
+  config:
+    import:
+      # 不使用 optional 前缀：Nacos 不可用或目标配置不存在时终止启动，避免应用误连其他数据源。
+      - nacos:${NACOS_DATA_ID}
+  cloud:
+    nacos:
+      # 这些值必须由本机 .env 提供，代码与构建产物中不包含真实地址和认证信息。
+      server-addr: ${NACOS_SERVER_ADDR}
+      username: ${NACOS_USERNAME}
+      password: ${NACOS_PASSWORD}
+      config:
+        namespace: ${NACOS_NAMESPACE}
+        group: ${NACOS_GROUP}
+        # 官方解析器不展开 import URI 的占位符；name 供启动期解析器取得已由 Spring Environment 展开的 Data ID。
+        name: ${NACOS_DATA_ID}
+        # 连接参数改变后通过重启应用生效，禁止在运行期直接替换数据源或 Redis 连接配置。
+        refresh-enabled: false
   profiles:
-    active: local,ollama
+    active: local,dashscope
   autoconfigure:
     exclude:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
-      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
-      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeEmbeddingAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeRerankAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioSpeechAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioTranscriptionAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeMultimodalEmbeddingAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeVideoAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
   ai:
-    ollama:
-      base-url: http://localhost:11434
+    model:
+      chat: dashscope
+      embedding:
+        text: dashscope
+    dashscope:
+      base-url: https://dashscope.aliyuncs.com
       chat:
         options:
-          model: qwen3.5:35b
+          model: qwen3.5-plus
+          multi-model: true
+          # qwen3.5-plus 默认开启长思考；关闭默认思考，避免关键词增强等同步短任务长时间阻塞。
+          enable-thinking: false
       embedding:
         options:
-          model: mxbai-embed-large:latest
+          model: text-embedding-v4
+          dimensions: 1024
     mcp:
       client:
         annotation-scanner:
@@ -33,6 +65,19 @@ spring:
 #                url: http://localhost:8129
         stdio:
           servers-configuration: classpath:mcp-servers.json
+          connections:
+            kewei-image-search-mcp-server:
+              command: java
+              args:
+                - -Dspring.ai.mcp.server.stdio=true
+                - -Dspring.main.web-application-type=none
+                - -Dlogging.level.root=OFF
+                - -Dspring.main.banner-mode=off
+                - -jar
+                - kewei-image-search-mcp-server/target/kewei-image-search-mcp-server-0.0.1-SNAPSHOT.jar
+              env:
+                # 主应用先从 Nacos 解析 Pexels Key，再通过子进程环境传递，避免密钥进入仓库或 JVM 命令行。
+                PEXELS_API_KEY: ${pexels.api-key}
         request-timeout: 200s
 
     vectorstore:
@@ -66,3 +111,8 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+
+# 即使排障时把根日志切到 DEBUG，也禁止 Nacos 加载器输出包含数据库与 Redis 密码的配置全文。
+logging:
+  level:
+    com.alibaba.cloud.nacos.configdata.NacosConfigDataLoader: INFO
