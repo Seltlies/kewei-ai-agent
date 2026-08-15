@@ -16,10 +16,19 @@ public class MemoryStrReplaceTool {
 
     private final MemoryToolSupport support;
 
+    /** @param memoriesRootPath 长期记忆沙箱根目录 */
     public MemoryStrReplaceTool(@Qualifier("longTermMemoriesRootPath") Path memoriesRootPath) {
         this.support = new MemoryToolSupport(memoriesRootPath);
     }
 
+    /**
+     * 仅在目标文本恰好出现一次时执行精确替换，避免模糊修改错误段落。
+     *
+     * @param relativePath 相对记忆文件路径
+     * @param oldText 必须唯一出现的原文本
+     * @param newText 替换文本
+     * @return 替换结果或错误文本
+     */
     @Tool(name = "MemoryStrReplace", description = "Replace an exact and unique string inside an existing memory file", returnDirect = false)
     public String memoryStrReplace(
             @ToolParam(description = "Relative path of the memory file to update") String relativePath,

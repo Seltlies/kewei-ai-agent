@@ -22,6 +22,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+/**
+ * 恋爱知识库 Markdown 到 PgVector 的启动期增量加载配置。
+ *
+ * <p>正文 SHA-256 写入 metadata 作为幂等键，避免应用每次启动重复向量化相同内容。</p>
+ */
 @Configuration
 @Slf4j
 public class PgVectorVectorLoadMarkdownConfig {
@@ -55,6 +60,11 @@ public class PgVectorVectorLoadMarkdownConfig {
     @Bean
     public ApplicationRunner pgVectorVectorStoreConfig() {
         return new ApplicationRunner() {
+            /**
+             * 加载知识库、按内容摘要筛选新增文档，再执行关键词增强和向量写入。
+             *
+             * @param args Spring Boot 启动参数
+             */
             @Override
             public void run(ApplicationArguments args) {
                 List<Document> loadedDocuments = loveAppDocumentLoader.loadMarkdown();
@@ -83,6 +93,12 @@ public class PgVectorVectorLoadMarkdownConfig {
         };
     }
 
+    /**
+     * 使用参数化查询判断内容摘要是否已存在；表名先通过白名单校验后再拼接。
+     *
+     * @param contentHash 文档正文 SHA-256
+     * @return 已存在相同内容时返回 {@code true}
+     */
     private boolean existsByContentHash(String contentHash) {
         String safeTableName = sanitizeTableName(tableName);
         String sql = "SELECT EXISTS (SELECT 1 FROM " + safeTableName + " WHERE metadata::jsonb ->> 'content_hash' = ?)";
@@ -90,6 +106,12 @@ public class PgVectorVectorLoadMarkdownConfig {
         return Boolean.TRUE.equals(exists);
     }
 
+    /**
+     * 将配置表名限制为字母、数字和下划线，防止动态标识符形成 SQL 注入。
+     *
+     * @param configuredTableName 外部配置表名
+     * @return 校验通过的原表名
+     */
     private String sanitizeTableName(String configuredTableName) {
         if (!SAFE_TABLE_NAME.matcher(configuredTableName).matches()) {
             throw new IllegalArgumentException("Invalid pgvector table name: " + configuredTableName);
@@ -97,6 +119,12 @@ public class PgVectorVectorLoadMarkdownConfig {
         return configuredTableName;
     }
 
+    /**
+     * 兼容不同 Spring AI 版本的正文访问器，从 Document 中读取参与去重的文本。
+     *
+     * @param document Spring AI 文档
+     * @return 文档正文；无可用正文访问器时返回元数据文本
+     */
     private String extractDocumentText(Document document) {
         for (String methodName : List.of("getText", "getContent")) {
             try {
@@ -106,13 +134,19 @@ public class PgVectorVectorLoadMarkdownConfig {
                     return String.valueOf(value);
                 }
             } catch (Exception ignored) {
-                // Try next accessor for compatibility with different Spring AI versions.
+                // 当前 Spring AI 版本没有该访问器时继续尝试另一个公开方法。
             }
         }
 
         return String.valueOf(document.getMetadata());
     }
 
+    /**
+     * 计算 UTF-8 文本的 SHA-256 十六进制摘要。
+     *
+     * @param value 文档正文
+     * @return 64 位小写十六进制摘要
+     */
     private String sha256Hex(String value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

@@ -205,6 +205,14 @@ public class ChatSessionService {
         }
     }
 
+    /**
+     * 创建服务端生成 UUID、绑定账号和应用类型的正式会话记录。
+     *
+     * @param accountId 会话所属账号主键
+     * @param appCode 会话所属应用
+     * @param title 已按业务规则生成的标题
+     * @return 已持久化会话
+     */
     private ChatSessionDO createSession(Long accountId, ChatAppCode appCode, String title) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.UNAUTHENTICATED);
@@ -224,10 +232,22 @@ public class ChatSessionService {
         return session;
     }
 
+    /**
+     * 将连续空白压缩为单个空格并去除首尾空白，供空消息校验和标题生成共用。
+     *
+     * @param message 原始消息
+     * @return 规范化消息；输入为 {@code null} 时仍返回 {@code null}
+     */
     private String normalizeMessage(String message) {
         return message == null ? null : message.replaceAll("\\s+", " ").trim();
     }
 
+    /**
+     * 按 Unicode 码点截取会话标题，避免在 emoji 或代理对中间截断字符串。
+     *
+     * @param normalizedMessage 已规范化的首条消息
+     * @return 最长 30 个码点、超长时以省略号结尾的标题
+     */
     private String buildTitle(String normalizedMessage) {
         int codePointCount = normalizedMessage.codePointCount(0, normalizedMessage.length());
         if (codePointCount <= MAX_TITLE_CODE_POINTS) {
@@ -237,12 +257,24 @@ public class ChatSessionService {
         return normalizedMessage.substring(0, endIndex) + "…";
     }
 
+    /**
+     * 将最后一条记录的更新时间和主键编码为 URL 安全游标。
+     *
+     * @param session 当前页最后一条会话
+     * @return 不带填充字符的 Base64URL 游标
+     */
     private String encodeCursor(ChatSessionDO session) {
         String value = CURSOR_TIME_FORMATTER.format(session.getUpdateTime()) + "|" + session.getId();
         return Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 解码并严格校验分页游标，拒绝结构错误、非法时间和非正主键。
+     *
+     * @param cursor 客户端回传游标
+     * @return 游标值；空白游标返回 {@code null}
+     */
     private CursorValue decodeCursor(String cursor) {
         if (!StringUtils.hasText(cursor)) {
             return null;
@@ -267,6 +299,12 @@ public class ChatSessionService {
         }
     }
 
+    /**
+     * 键集分页边界，更新时间与主键共同形成稳定的倒序游标。
+     *
+     * @param updateTime 边界记录更新时间
+     * @param id 边界记录数据库主键
+     */
     private record CursorValue(LocalDateTime updateTime, Long id) {
     }
 }

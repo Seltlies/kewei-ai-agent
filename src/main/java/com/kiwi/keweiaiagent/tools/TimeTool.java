@@ -18,6 +18,12 @@ import java.time.ZonedDateTime;
 @Component
 public class TimeTool {
 
+    /**
+     * 返回指定 IANA 时区的日期、时间和 Epoch 毫秒值。
+     *
+     * @param zoneId IANA 时区标识；空白时使用服务器默认时区
+     * @return 多行时间信息或时区错误提示
+     */
     @Tool(description = "Get current date and time info, optional timezone ID. Example: Asia/Shanghai", returnDirect = false)
     public String getCurrentDateTime(
             @ToolParam(description = "Optional IANA timezone ID, default system timezone") String zoneId

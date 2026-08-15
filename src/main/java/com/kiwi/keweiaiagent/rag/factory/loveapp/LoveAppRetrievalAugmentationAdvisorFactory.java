@@ -7,6 +7,9 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 
+/**
+ * 恋爱知识库 RAG Advisor 工厂，组合向量检索器、用户状态过滤和空上下文增强策略。
+ */
 public class LoveAppRetrievalAugmentationAdvisorFactory {
 
 

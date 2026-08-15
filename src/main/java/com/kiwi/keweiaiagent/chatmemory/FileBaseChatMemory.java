@@ -41,6 +41,11 @@ public class FileBaseChatMemory implements ChatMemory {
      */
     private final String Base_DIR;
 
+    /**
+     * 创建文件记忆并确保根目录存在。
+     *
+     * @param base_DIR 每个会话 JSON 文件的存储目录
+     */
     public FileBaseChatMemory(String base_DIR) {
         this.Base_DIR = base_DIR;
         File file = new File(base_DIR);
@@ -156,6 +161,12 @@ public class FileBaseChatMemory implements ChatMemory {
 
     }
 
+    /**
+     * 对会话标识做 URL 编码后生成文件名，避免路径分隔符改变存储目录。
+     *
+     * @param conversationId 会话标识
+     * @return 该会话对应的 JSON 文件
+     */
     private File getConversationFile(String conversationId) {
         String safeFileName = URLEncoder.encode(conversationId, StandardCharsets.UTF_8) + ".json";
         return new File(Base_DIR, safeFileName);
@@ -238,9 +249,11 @@ public class FileBaseChatMemory implements ChatMemory {
         public String name;
         public String arguments;
 
+        /** 创建供 Jackson 反序列化使用的空对象。 */
         public StoredToolCall() {
         }
 
+        /** 创建包含完整工具调用字段的持久化对象。 */
         public StoredToolCall(String id, String type, String name, String arguments) {
             this.id = id;
             this.type = type;
@@ -257,9 +270,11 @@ public class FileBaseChatMemory implements ChatMemory {
         public String name;
         public String responseData;
 
+        /** 创建供 Jackson 反序列化使用的空对象。 */
         public StoredToolResponse() {
         }
 
+        /** 创建包含完整工具响应字段的持久化对象。 */
         public StoredToolResponse(String id, String name, String responseData) {
             this.id = id;
             this.name = name;

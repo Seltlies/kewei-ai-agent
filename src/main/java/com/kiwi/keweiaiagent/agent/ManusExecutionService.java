@@ -152,6 +152,11 @@ public class ManusExecutionService {
         chatSessionService.touchOwnedSession(session.accountId(), session.chatId());
     }
 
+    /**
+     * 将仍处于活动状态的执行原子更新为完成，并拒绝已经被新任务替换的旧执行。
+     *
+     * @param session 当前内存执行上下文
+     */
     @Transactional(transactionManager = "mysqlTransactionManager")
     public void completeExecution(ManusSessionStore.ManusSession session) {
         lockOwnedSession(session.accountId(), session.chatId());
@@ -163,6 +168,12 @@ public class ManusExecutionService {
         }
     }
 
+    /**
+     * 将活动执行标记为失败，并对写入数据库的原因做长度和换行归一化。
+     *
+     * @param session 当前内存执行上下文
+     * @param reason 原始失败原因
+     */
     @Transactional(transactionManager = "mysqlTransactionManager")
     public void failExecution(ManusSessionStore.ManusSession session, String reason) {
         lockOwnedSession(session.accountId(), session.chatId());
@@ -192,6 +203,12 @@ public class ManusExecutionService {
         }
     }
 
+    /**
+     * 构造只允许更新 RUNNING 或 WAITING_USER 记录的乐观状态更新条件。
+     *
+     * @param session 当前执行上下文
+     * @return 带归属、活动状态、更新时间和版本递增规则的更新条件
+     */
     private LambdaUpdateWrapper<ManusExecutionDO> activeExecutionUpdate(
             ManusSessionStore.ManusSession session
     ) {
@@ -203,6 +220,12 @@ public class ManusExecutionService {
                 .setSql("version = version + 1");
     }
 
+    /**
+     * 构造 executionId、sessionId、accountId 三重归属约束，防止跨会话或跨账号更新。
+     *
+     * @param session 当前执行上下文
+     * @return 基础归属更新条件
+     */
     private LambdaUpdateWrapper<ManusExecutionDO> ownedExecutionUpdate(
             ManusSessionStore.ManusSession session
     ) {
@@ -212,6 +235,14 @@ public class ManusExecutionService {
                 .eq(ManusExecutionDO::getUserId, session.accountId());
     }
 
+    /**
+     * 原子写入内存会话对应的执行终态，并追加可恢复的状态历史事件。
+     *
+     * @param session 当前执行上下文
+     * @param status 目标终态
+     * @param reason 可选原因
+     * @return 仅在一条活动记录成功更新时返回 {@code true}
+     */
     private boolean updateTerminalStatus(
             ManusSessionStore.ManusSession session,
             ManusExecutionStatus status,
@@ -233,6 +264,13 @@ public class ManusExecutionService {
         return false;
     }
 
+    /**
+     * 将数据库执行记录适配为统一会话模型后复用终态更新逻辑。
+     *
+     * @param execution 数据库执行记录
+     * @param status 目标终态
+     * @param reason 可选原因
+     */
     private void updateTerminalStatus(
             ManusExecutionDO execution,
             ManusExecutionStatus status,
@@ -252,6 +290,13 @@ public class ManusExecutionService {
         updateTerminalStatus(session, status, reason);
     }
 
+    /**
+     * 构造历史状态事件的元数据，只有存在原因时才写入 reason 字段。
+     *
+     * @param status 执行终态
+     * @param reason 可选原因
+     * @return 保持字段顺序的事件元数据
+     */
     private Map<String, Object> terminalMetadata(ManusExecutionStatus status, String reason) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("status", status);
@@ -261,6 +306,9 @@ public class ManusExecutionService {
         return metadata;
     }
 
+    /**
+     * 从内存会话提取执行标识并追加一条前端可恢复的历史事件。
+     */
     private void appendDisplayMessage(
             ManusSessionStore.ManusSession session,
             String type,
@@ -272,6 +320,9 @@ public class ManusExecutionService {
                 session.executionId(), session.chatId(), type, text, messageKind, eventMetadata);
     }
 
+    /**
+     * 从数据库执行记录提取标识并追加一条前端可恢复的历史事件。
+     */
     private void appendDisplayMessage(
             ManusExecutionDO execution,
             String type,
@@ -289,6 +340,19 @@ public class ManusExecutionService {
         );
     }
 
+    /**
+     * 按 ChatMemoryMessageDO 的统一 JSON 结构保存 Manus 展示事件。
+     *
+     * <p>messageKind 和 executionId 放在 metadata 中，使历史接口无需识别数据库表即可还原
+     * 普通文本、Todo、问题、回答和终态。</p>
+     *
+     * @param executionId 执行标识
+     * @param sessionId 会话标识
+     * @param type 消息角色
+     * @param text 展示文本
+     * @param messageKind Manus 事件种类
+     * @param eventMetadata 事件扩展数据
+     */
     private void appendDisplayMessage(
             String executionId,
             String sessionId,
@@ -315,6 +379,12 @@ public class ManusExecutionService {
         chatMemoryMessageMapper.insert(message);
     }
 
+    /**
+     * 使用全局 ObjectMapper 序列化执行载荷，并把序列化失败转换为统一业务异常。
+     *
+     * @param value 待序列化对象
+     * @return JSON 文本
+     */
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -323,6 +393,12 @@ public class ManusExecutionService {
         }
     }
 
+    /**
+     * 将失败原因整理为适合数据库和页面展示的单行、定长文本。
+     *
+     * @param reason 原始失败原因
+     * @return 非空且最长 500 字符的原因
+     */
     private String normalizeReason(String reason) {
         if (reason == null || reason.isBlank()) {
             return "Manus 执行失败";
@@ -331,6 +407,12 @@ public class ManusExecutionService {
         return normalized.length() <= 500 ? normalized : normalized.substring(0, 500);
     }
 
+    /**
+     * 校验状态机更新恰好命中一条记录，否则视为并发替换或非法状态转换。
+     *
+     * @param updated 数据库更新行数
+     * @param executionId 用于日志定位的执行标识
+     */
     private void requireUpdated(int updated, String executionId) {
         if (updated != 1) {
             log.warn("Manus 执行状态更新冲突，executionId={}", executionId);

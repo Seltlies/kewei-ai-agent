@@ -11,6 +11,11 @@ import org.springframework.ai.rag.generation.augmentation.ContextualQueryAugment
  */
 public class LoveAppContextualQueryAugmenterFactory {
 
+    /**
+     * 创建“无检索上下文时不调用模型”的查询增强器，直接返回固定领域边界提示。
+     *
+     * @return 恋爱咨询上下文增强器
+     */
     public static ContextualQueryAugmenter createInstance(){
         PromptTemplate promptTemplate = new PromptTemplate("""
                 你应该输出下面的内容：

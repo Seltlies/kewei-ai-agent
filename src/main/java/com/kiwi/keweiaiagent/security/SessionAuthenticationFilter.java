@@ -34,6 +34,11 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final Duration absoluteTimeout;
 
+    /**
+     * @param userAccountService 每次请求读取账号最新状态和角色的服务
+     * @param objectMapper 过滤器异常响应序列化器
+     * @param absoluteTimeout 认证会话绝对有效期
+     */
     public SessionAuthenticationFilter(
             UserAccountService userAccountService,
             ObjectMapper objectMapper,
@@ -111,6 +116,13 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /**
+     * 只接受数值类型的会话属性并转换为 long，拒绝客户端或旧版本写入的字符串值。
+     *
+     * @param session 当前 HttpSession
+     * @param attributeName 属性名称
+     * @return 数值属性；缺失或类型错误时返回 {@code null}
+     */
     private Long readLongAttribute(HttpSession session, String attributeName) {
         Object value = session.getAttribute(attributeName);
         if (value instanceof Number number) {

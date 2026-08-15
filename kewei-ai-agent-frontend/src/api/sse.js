@@ -156,6 +156,12 @@ export function openFetchSSE({ path, method = 'POST', params, body, onOpen, onMe
             onQuestion?.(data)
           } else if (eventName === 'todo') {
             onTodo?.(data)
+          } else if (eventName === 'error') {
+            // 后端会先发送具名 error 事件再结束 SseEmitter。这里立即转换为业务错误，
+            // 避免后续连接关闭被浏览器统一降格成缺少上下文的 network error。
+            onError?.(new Error(data || 'SSE 执行失败'))
+            close()
+            return
           } else if (eventName === 'done' || data === '[DONE]') {
             onDone?.(data || '[DONE]')
             close()

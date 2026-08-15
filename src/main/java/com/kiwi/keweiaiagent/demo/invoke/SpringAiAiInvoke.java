@@ -10,12 +10,20 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 //@Component
+/**
+ * Spring AI 模型调用演示，仅在 dashscope Profile 下且重新启用 Component 后运行。
+ */
 @Profile("dashscope")
 public class SpringAiAiInvoke implements CommandLineRunner {
 
     @Resource(name = "dashScopeChatModel")
     private ChatModel dashscopeChatModel;
 
+    /**
+     * 应用启动后调用一次 DashScope ChatModel 并输出模型文本。
+     *
+     * @param args 应用启动参数
+     */
     @Override
     public void run(String... args) throws Exception {
         AssistantMessage msg = dashscopeChatModel.call(new Prompt("你好我是kiw"))

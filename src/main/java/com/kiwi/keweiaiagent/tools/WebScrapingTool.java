@@ -14,12 +14,23 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 网页正文抓取工具，使用 Jsoup 提取标题、描述、正文以及可选的前十条链接。
+ */
 @Component
 public class WebScrapingTool {
 
     private static final int DEFAULT_TIMEOUT_MS = 20_000;
     private static final int DEFAULT_MAX_TEXT_LENGTH = 4000;
 
+    /**
+     * 请求 HTTP/HTTPS 页面并整理为适合模型消费的定长纯文本。
+     *
+     * @param url 网页地址
+     * @param maxTextLength 正文最大字符数
+     * @param includeLinks 是否附带前十条链接
+     * @return 网页摘要或抓取失败文本
+     */
     @Tool(description = "Scrape a webpage and return title, summary text and optional links",returnDirect = false)
     public String scrapeWebsite(
             @ToolParam(description = "The webpage URL to scrape. Must start with http:// or https://") String url,
@@ -49,6 +60,12 @@ public class WebScrapingTool {
         }
     }
 
+    /**
+     * 解析 URL 并限定协议为 HTTP 或 HTTPS。
+     *
+     * @param url 待校验地址
+     * @return 协议受支持且语法有效时返回 {@code true}
+     */
     private boolean isSupportedUrl(String url) {
         try {
             URI uri = URI.create(url);
@@ -59,6 +76,15 @@ public class WebScrapingTool {
         }
     }
 
+    /**
+     * 将 Jsoup 文档压缩为有固定字段顺序的模型上下文文本。
+     *
+     * @param url 最终展示的来源地址
+     * @param doc 已解析文档
+     * @param maxTextLength 正文最大长度
+     * @param includeLinks 是否输出链接
+     * @return 多行抓取结果
+     */
     String buildScrapeResult(String url, Document doc, int maxTextLength, boolean includeLinks) {
         List<String> lines = new ArrayList<>();
         lines.add("url: " + url);

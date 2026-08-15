@@ -16,12 +16,22 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.List;
 
+/**
+ * PDF 批量转图片工具，使用 PDFBox 按页渲染并输出 JPEG 文件。
+ */
 @Component
 public class PdfConvertTool {
 
     private static final int DEFAULT_DPI = 200;
     private final String OUTPUT_DIR = FileConstant.File_SAVE_DIR + "/pdf-jpg";
 
+    /**
+     * 递归查找目录内 PDF，并按指定 DPI 将每一页渲染为独立 JPEG。
+     *
+     * @param pdfDirectoryPath PDF 所在目录
+     * @param dpi 渲染分辨率；为空或非正数时使用 200
+     * @return 转换数量、输出目录及失败文件摘要
+     */
     @Tool(description = "Batch convert all PDF files in a directory to JPG images",returnDirect = false)
     public String batchConvertPdfToJpg(
             @ToolParam(description = "Directory path containing PDF files") String pdfDirectoryPath,

@@ -22,7 +22,7 @@
       </div>
       <div class="todo-card__list">
         <div v-for="item in todoItems" :key="item.id" class="todo-card__item" :class="`is-${item.status}`">
-          <span class="todo-card__icon">{{ item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '…' : '○' }}</span>
+          <span class="todo-card__icon">{{ item.status === 'completed' ? '✓' : ['failed', 'interrupted'].includes(item.status) ? '×' : item.status === 'in_progress' ? '…' : '○' }}</span>
           <span class="todo-card__content">{{ item.content }}</span>
           <span class="todo-card__status">{{ formatStatus(item.status) }}</span>
         </div>
@@ -66,6 +66,8 @@ const htmlContent = computed(() => renderAssistantContent(message.value.content 
 
 function formatStatus(status) {
   if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  if (status === 'interrupted') return '已中断'
   if (status === 'in_progress') return '进行中'
   return '待处理'
 }
@@ -106,6 +108,16 @@ function formatStatus(status) {
 .todo-card__item.is-completed {
   background: #f3fbf5;
   border-color: rgba(69, 164, 105, 0.22);
+}
+
+.todo-card__item.is-failed {
+  background: rgba(191, 54, 54, 0.08);
+  border-color: rgba(191, 54, 54, 0.24);
+}
+
+.todo-card__item.is-interrupted {
+  background: rgba(128, 93, 68, 0.08);
+  border-color: rgba(128, 93, 68, 0.24);
 }
 
 .todo-card__item.is-in_progress {

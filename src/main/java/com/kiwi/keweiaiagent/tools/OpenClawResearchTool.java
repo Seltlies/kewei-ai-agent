@@ -47,6 +47,16 @@ public class OpenClawResearchTool {
      */
     private final String sessionPrefix;
 
+    /**
+     * 创建 OpenClaw 调研委派工具，并把最小超时时间限制为 10 秒。
+     *
+     * @param objectMapper OpenClaw JSON 结果解析器
+     * @param commandRunner 外部进程执行器
+     * @param command OpenClaw 可执行命令
+     * @param agentId 远端 Agent 标识
+     * @param timeoutSeconds 执行超时秒数
+     * @param sessionPrefix 唯一会话前缀
+     */
     public OpenClawResearchTool(
             ObjectMapper objectMapper,
             OpenClawCommandRunner commandRunner,
@@ -100,6 +110,13 @@ public class OpenClawResearchTool {
         }
     }
 
+    /**
+     * 将调研任务构造成 ProcessBuilder 参数列表，不经过 shell 字符串解析。
+     *
+     * @param task 调研目标
+     * @param locale 输出区域设置
+     * @return OpenClaw agent 子命令参数
+     */
     List<String> buildCommand(String task, String locale) {
         List<String> commandParts = new ArrayList<>();
         commandParts.add(command);
@@ -118,6 +135,13 @@ public class OpenClawResearchTool {
         return commandParts;
     }
 
+    /**
+     * 构造要求中文摘要、至少三条发现和来源 URL 的外部代理提示词。
+     *
+     * @param task 调研目标
+     * @param locale 输出语言区域
+     * @return 完整调研提示词
+     */
     String buildResearchPrompt(String task, String locale) {
         return """
                 你是 OpenClaw 调研执行代理。请围绕下面的目标执行网页调研，并只返回最终调研结果，不要输出你的思考过程。
@@ -172,6 +196,7 @@ public class OpenClawResearchTool {
         return stdout;
     }
 
+    /** 从候选文本中返回首个非空值，用于生成稳定失败原因。 */
     private String firstNonBlank(String... values) {
         for (String value : values) {
             if (StrUtil.isNotBlank(value)) {
@@ -181,6 +206,7 @@ public class OpenClawResearchTool {
         return "";
     }
 
+    /** 将日志预览压缩为空格分隔的最多 400 个字符，避免外部输出淹没日志。 */
     private String preview(String value) {
         if (StrUtil.isBlank(value)) {
             return "";

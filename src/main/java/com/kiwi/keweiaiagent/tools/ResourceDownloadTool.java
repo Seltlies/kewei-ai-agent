@@ -8,11 +8,21 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+/**
+ * 网络资源下载工具，将远程内容保存到 Agent 专用下载目录。
+ */
 @Component
 public class ResourceDownloadTool {
 
     private final String DOWNLOAD_DIR = FileConstant.File_SAVE_DIR + "/download";
 
+    /**
+     * 下载指定 URL 到工具目录中的目标文件名。
+     *
+     * @param url 远程资源地址
+     * @param fileName 保存文件名
+     * @return 成功路径或错误文本
+     */
     @Tool(description = "Download a resource from URL to local download directory",returnDirect = false)
     public String downloadResource(
             @ToolParam(description = "URL of the resource to download") String url,

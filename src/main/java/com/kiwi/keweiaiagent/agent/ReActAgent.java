@@ -25,6 +25,11 @@ public abstract class ReActAgent extends BaseAgent{
      */
    public abstract String act();
 
+    /**
+     * 按“先思考、后行动”的固定模板执行一个步骤。
+     *
+     * @return 需要行动时返回工具执行结果，否则返回思考结束提示
+     */
    @Override
    public String step(){
        try {

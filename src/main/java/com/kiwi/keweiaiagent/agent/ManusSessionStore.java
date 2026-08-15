@@ -4,6 +4,7 @@ import com.kiwi.keweiaiagent.agent.todo.TodoSnapshot;
 import com.kiwi.keweiaiagent.exception.BusinessException;
 import com.kiwi.keweiaiagent.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springaicommunity.agent.tools.AskUserQuestionTool;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class ManusSessionStore {
 
     /**
@@ -31,6 +33,11 @@ public class ManusSessionStore {
      */
     @FunctionalInterface
     public interface TodoSnapshotListener {
+        /**
+         * 在当前执行产生新待办快照时接收通知。
+         *
+         * @param todoSnapshot 最新完整快照
+         */
         void onTodoSnapshot(TodoSnapshot todoSnapshot);
     }
 
@@ -258,6 +265,12 @@ public class ManusSessionStore {
         }
     }
 
+    /**
+     * 读取会话当前的待办快照。
+     *
+     * @param chatId 会话标识
+     * @return 当前快照；会话不存在时返回 {@code null}
+     */
     public TodoSnapshot getTodoSnapshot(String chatId) {
         ManusSession session = sessions.get(chatId);
         return session == null ? null : session.todoSnapshot();
@@ -285,11 +298,22 @@ public class ManusSessionStore {
         currentExecutionContext.remove();
     }
 
+    /**
+     * 获取当前工作线程已激活的会话标识，供工具回调定位所属执行。
+     *
+     * @return 当前会话标识；线程未激活执行时返回 {@code null}
+     */
     public String currentSessionId() {
         ExecutionContext context = currentExecutionContext.get();
         return context == null ? null : context.chatId();
     }
 
+    /**
+     * 读取会话等待用户回答的结构化问题。
+     *
+     * @param chatId 会话标识
+     * @return 问题列表；会话不存在时返回 {@code null}
+     */
     public List<PendingQuestion> getPendingQuestions(String chatId) {
         ManusSession session = sessions.get(chatId);
         return session == null ? null : session.pendingQuestions();
@@ -367,19 +391,44 @@ public class ManusSessionStore {
         ManusSession session = getSessionForExecution(chatId, executionId);
         if (session != null) {
             manusExecutionService.failExecution(session, reason);
+            return;
         }
+        // 终态写入不允许静默跳过。该日志用于识别执行生命周期被提前清理或被新 execution 替换，
+        // 同时保留 chatId/executionId 便于与数据库记录和 SSE 日志关联，不记录任务正文或敏感参数。
+        log.error("Manus 失败状态未持久化：未找到匹配的内存会话，chatId={}，executionId={}",
+                chatId, executionId);
     }
 
+    /**
+     * 获取会话当前内存执行标识。
+     *
+     * @param chatId 会话标识
+     * @return 最新 executionId；会话不存在时返回 {@code null}
+     */
     public String getExecutionId(String chatId) {
         ManusSession session = sessions.get(chatId);
         return session == null ? null : session.executionId();
     }
 
+    /**
+     * 同时校验 chatId 与 executionId 后读取会话，阻止旧异步线程访问新执行状态。
+     *
+     * @param chatId 会话标识
+     * @param executionId 期望执行标识
+     * @return 两者匹配的会话，否则返回 {@code null}
+     */
     private ManusSession getSessionForExecution(String chatId, String executionId) {
         ManusSession session = sessions.get(chatId);
         return session != null && Objects.equals(session.executionId(), executionId) ? session : null;
     }
 
+    /**
+     * 校验工具回调所在 ThreadLocal 执行与内存会话仍完全一致。
+     *
+     * @param chatId 工具请求操作的会话
+     * @param session 当前内存会话
+     * @throws BusinessException 执行已被替换或未激活时抛出
+     */
     private void requireMatchingExecution(String chatId, ManusSession session) {
         ExecutionContext context = currentExecutionContext.get();
         if (session == null
@@ -390,6 +439,12 @@ public class ManusSessionStore {
         }
     }
 
+    /**
+     * 绑定到 Agent 工作线程的最小执行身份，用于校验异步工具回调归属。
+     *
+     * @param chatId 会话标识
+     * @param executionId 执行标识
+     */
     private record ExecutionContext(String chatId, String executionId) {
     }
 

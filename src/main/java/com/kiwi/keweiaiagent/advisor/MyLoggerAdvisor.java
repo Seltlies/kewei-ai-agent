@@ -17,11 +17,11 @@ import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.lang.Nullable;
 import reactor.core.publisher.Flux;
 
-@Slf4j
 /**
  * MyLoggerAdvisor 是一个日志切面（Advisor），实现了 CallAdvisor 和 StreamAdvisor 接口。
  * 它为 Chat Client 的请求和响应提供日志记录功能，支持单次调用和流式调用。
  */
+@Slf4j
 public class MyLoggerAdvisor implements CallAdvisor, StreamAdvisor {
 
 

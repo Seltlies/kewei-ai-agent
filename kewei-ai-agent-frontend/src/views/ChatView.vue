@@ -100,7 +100,7 @@
           </div>
           <div class="todo-pin__list">
             <div v-for="item in pinnedTodo.items" :key="item.id" class="todo-pin__item" :class="`is-${item.status}`">
-              <span class="todo-pin__icon">{{ item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '…' : '○' }}</span>
+              <span class="todo-pin__icon">{{ item.status === 'completed' ? '✓' : ['failed', 'interrupted'].includes(item.status) ? '×' : item.status === 'in_progress' ? '…' : '○' }}</span>
               <span class="todo-pin__content">{{ item.content }}</span>
               <span class="todo-pin__status">{{ formatTodoStatus(item.status) }}</span>
             </div>
@@ -360,9 +360,7 @@ async function switchSession(session, options = {}) {
     }
     const response = await listChatMessages(session.sessionId)
     if (requestVersion !== messageRequestVersion) return
-    messages.value = (Array.isArray(response.data) ? response.data : [])
-      .map(mapHistoryMessage)
-      .filter(Boolean)
+    messages.value = mapHistoryMessages(Array.isArray(response.data) ? response.data : [])
     store.addLog({
       endpoint: `/chat/sessions/${session.sessionId}/messages`,
       status: 'success',
@@ -404,6 +402,8 @@ function mapHistoryMessage(record) {
     content: payload.text || '',
     status: 'done',
     createTime: record.createTime,
+    manusExecutionId: metadata.executionId || '',
+    manusMessageKind: messageKind,
   }
   if (metadata.contentUrl) {
     message.attachments = [{
@@ -420,8 +420,34 @@ function mapHistoryMessage(record) {
     message.content = formatHistoricalAnswers(metadata.answers)
   } else if (messageKind === 'MANUS_STATUS') {
     message.content = formatHistoricalStatus(metadata.status, metadata.reason)
+    message.manusTerminalStatus = metadata.status || ''
   }
   return message
+}
+
+/**
+ * 按服务端消息顺序恢复 Manus 历史。遇到 FAILED/INTERRUPTED 终态时，只回写同一 executionId
+ * 最近一份 Todo 快照的未完成项，既保留已完成进度，也避免历史页面继续显示“进行中”。
+ */
+function mapHistoryMessages(records) {
+  const mappedMessages = []
+  for (const record of records) {
+    const message = mapHistoryMessage(record)
+    if (!message) continue
+    if (message.manusTerminalStatus === 'FAILED' || message.manusTerminalStatus === 'INTERRUPTED') {
+      for (let index = mappedMessages.length - 1; index >= 0; index -= 1) {
+        const candidate = mappedMessages[index]
+        if (candidate.manusExecutionId !== message.manusExecutionId || !candidate.todoSnapshot) continue
+        candidate.todoSnapshot = cloneTodoSnapshot(candidate.todoSnapshot)
+        candidate.todoSnapshot.items = candidate.todoSnapshot.items.map((item) => item.status === 'completed'
+          ? item
+          : { ...item, status: message.manusTerminalStatus === 'FAILED' ? 'failed' : 'interrupted' })
+        break
+      }
+    }
+    mappedMessages.push(message)
+  }
+  return mappedMessages
 }
 
 /**
@@ -513,6 +539,7 @@ async function send() {
     }
     await loadSessions({ reset: true })
   } catch (error) {
+    if (store.activeApp === 'manus') archivePinnedTodo('failed')
     if (assistant) patchMessage(assistant.id, { content: error.message || '请求失败', status: 'error' })
     store.addLog({
       endpoint: store.activeApp === 'manus' ? '/ai/manus/chat' : store.chatMode,
@@ -740,9 +767,17 @@ function cloneTodoSnapshot(snapshot) {
   return { items: Array.isArray(snapshot.items) ? snapshot.items.map((item) => ({ ...item })) : [] }
 }
 
-function archivePinnedTodo() {
+function archivePinnedTodo(terminalStatus = 'completed') {
   if (!pinnedTodo.value?.items?.length) return
-  addMessage('assistant', '', 'done', { todoSnapshot: cloneTodoSnapshot(pinnedTodo.value) })
+  const snapshot = cloneTodoSnapshot(pinnedTodo.value)
+  if (terminalStatus === 'failed') {
+    // SSE 明确失败时，把尚未完成的项目固定为失败态后归档，避免输入区继续显示“任务执行中”。
+    // 已完成项目保持原状，用户仍能看出失败发生前的真实进度。
+    snapshot.items = snapshot.items.map((item) => item.status === 'completed'
+      ? item
+      : { ...item, status: 'failed' })
+  }
+  addMessage('assistant', '', 'done', { todoSnapshot: snapshot })
   pinnedTodo.value = null
 }
 
@@ -896,6 +931,8 @@ function formatHistoricalStatus(status, reason) {
 
 function formatTodoStatus(status) {
   if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  if (status === 'interrupted') return '已中断'
   if (status === 'in_progress') return '进行中'
   return '待处理'
 }
@@ -1229,6 +1266,16 @@ function formatFileSize(size) {
 
 .todo-pin__item.is-completed {
   background: #f2faf5;
+}
+
+.todo-pin__item.is-failed {
+  border-color: rgba(191, 54, 54, 0.24);
+  background: rgba(191, 54, 54, 0.08);
+}
+
+.todo-pin__item.is-interrupted {
+  border-color: rgba(128, 93, 68, 0.24);
+  background: rgba(128, 93, 68, 0.08);
 }
 
 .todo-pin__icon {

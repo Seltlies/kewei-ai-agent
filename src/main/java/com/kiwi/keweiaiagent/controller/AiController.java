@@ -230,6 +230,12 @@ public class AiController {
         return emitter;
     }
 
+    /**
+     * 沿异常因果链识别浏览器主动关闭 SSE 连接产生的预期写入异常。
+     *
+     * @param throwable 流式发送异常
+     * @return 属于客户端断开时返回 {@code true}
+     */
     private boolean isClientDisconnect(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
@@ -294,14 +300,17 @@ public class AiController {
         return chatAttachmentService.storeForExistingSession(account.accountId(), chatId, file);
     }
 
+    /** 判断请求是否选择图片问答且已提供附件标识。 */
     private boolean shouldUseImageOption(String option, String attachmentId) {
         return "image".equalsIgnoreCase(option) && attachmentId != null && !attachmentId.isBlank();
     }
 
+    /** 判断请求是否选择 Skills 工具模式。 */
     private boolean shouldUseSkillsOption(String option) {
         return "skills".equalsIgnoreCase(option);
     }
 
+    /** 判断请求是否选择 TodoWrite 演示模式。 */
     private boolean shouldUseTodoDemoOption(String option) {
         return "todo-demo".equalsIgnoreCase(option);
     }
@@ -314,6 +323,12 @@ public class AiController {
         return shouldUseTodoDemoOption(option) ? ChatAppCode.TODO_DEMO : ChatAppCode.LOVE_APP;
     }
 
+    /**
+     * 将结构化技能结果序列化为 SSE 文本数据。
+     *
+     * @param result 已完成安全处理的技能结果
+     * @return JSON 文本
+     */
     private String toJson(LoveApp.SkillChatResult result) {
         try {
             return objectMapper.writeValueAsString(result);

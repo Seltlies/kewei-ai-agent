@@ -15,10 +15,17 @@ public class MemoryDeleteTool {
 
     private final MemoryToolSupport support;
 
+    /** @param memoriesRootPath 长期记忆沙箱根目录 */
     public MemoryDeleteTool(@Qualifier("longTermMemoriesRootPath") Path memoriesRootPath) {
         this.support = new MemoryToolSupport(memoriesRootPath);
     }
 
+    /**
+     * 删除沙箱内的记忆文件或整个子目录树。
+     *
+     * @param relativePath 相对记忆路径
+     * @return 删除结果或错误文本
+     */
     @Tool(name = "MemoryDelete", description = "Delete a memory file or directory inside the sandboxed memories directory", returnDirect = false)
     public String memoryDelete(
             @ToolParam(description = "Relative path of the memory file or directory to delete") String relativePath

@@ -15,6 +15,9 @@ import java.util.Set;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
+/**
+ * TodoWrite 最小演示应用，只向模型开放计划、提问和终止工具，并复用正式会话记忆。
+ */
 @Component
 @Slf4j
 public class TodoDemoApp {
@@ -53,6 +56,13 @@ public class TodoDemoApp {
         log.info("已使用百炼 DashScope ChatModel 初始化 Todo 演示客户端，工具数量={}", demoTools.length);
     }
 
+    /**
+     * 同步执行一次 Todo 演示对话。
+     *
+     * @param message 用户任务
+     * @param chatId 会话标识
+     * @return 模型最终文本
+     */
     public String call(String message, String chatId) {
         ChatResponse chatResponse = chatClient.prompt()
                 .user(message)
@@ -64,6 +74,13 @@ public class TodoDemoApp {
         return chatResponse.getResult().getOutput().getText();
     }
 
+    /**
+     * 将同步演示结果延迟包装为 Flux，保持与 SSE Controller 的调用形式一致。
+     *
+     * @param message 用户任务
+     * @param chatId 会话标识
+     * @return 单个文本结果流
+     */
     public Flux<String> stream(String message, String chatId) {
         return Flux.defer(() -> Flux.just(call(message, chatId)));
     }

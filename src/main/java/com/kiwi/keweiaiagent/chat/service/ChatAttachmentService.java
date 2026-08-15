@@ -194,6 +194,13 @@ public class ChatAttachmentService {
         );
     }
 
+    /**
+     * 将已完成内容校验的图片写入账号/会话隔离目录并保存元数据。
+     *
+     * @param session 附件所属正式会话
+     * @param image 已验证图片
+     * @return 持久化后的附件元数据
+     */
     private ChatAttachmentDO storeValidatedImage(ChatSessionDO session, ValidatedImage image) {
         String attachmentId = UUID.randomUUID().toString();
         String storageName = UUID.randomUUID().toString().replace("-", "") + "." + image.extension();
@@ -226,6 +233,12 @@ public class ChatAttachmentService {
         return attachment;
     }
 
+    /**
+     * 校验上传对象、声明大小、文件名、扩展名和 MIME，再读取完整内容做真实格式校验。
+     *
+     * @param file 浏览器上传的 Multipart 文件
+     * @return 只包含可信字段的图片值对象
+     */
     private ValidatedImage validateImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.INVALID_PARAM, "图片不能为空");
@@ -256,6 +269,16 @@ public class ChatAttachmentService {
         return validateImageData(originalName, extension, expectedContentType, content, file.getSize());
     }
 
+    /**
+     * 对已经读取到内存的图片执行实际长度与可解码性校验。
+     *
+     * @param originalName 规范化原文件名
+     * @param extension 小写扩展名
+     * @param contentType 已与扩展名匹配的 MIME
+     * @param content 完整文件字节
+     * @param declaredSize 文件系统或 Multipart 声明大小
+     * @return 已验证图片值对象
+     */
     private ValidatedImage validateImageData(
             String originalName,
             String extension,
@@ -270,6 +293,12 @@ public class ChatAttachmentService {
         return new ValidatedImage(originalName, extension, contentType, content);
     }
 
+    /**
+     * 去除客户端可能携带的目录部分，并拒绝空字符、空名称和过长名称。
+     *
+     * @param originalFilename 客户端原始文件名
+     * @return 仅保留末级名称的安全文件名
+     */
     private String normalizeOriginalName(String originalFilename) {
         if (!StringUtils.hasText(originalFilename) || originalFilename.indexOf('\0') >= 0) {
             throw new BusinessException(ErrorCode.INVALID_PARAM, "图片文件名无效");
@@ -282,6 +311,12 @@ public class ChatAttachmentService {
         return normalized;
     }
 
+    /**
+     * 提取文件名最后一个点后的扩展名并转为小写。
+     *
+     * @param originalName 已规范化文件名
+     * @return 小写扩展名；没有有效扩展名时返回空串
+     */
     private String extractExtension(String originalName) {
         int index = originalName.lastIndexOf('.');
         if (index <= 0 || index == originalName.length() - 1) {
@@ -290,6 +325,12 @@ public class ChatAttachmentService {
         return originalName.substring(index + 1).toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 先校验文件签名，再通过 ImageIO 完整解码，阻止只伪造扩展名或文件头的内容入库。
+     *
+     * @param contentType 已确认的 MIME
+     * @param content 图片完整字节
+     */
     private void validateRealContent(String contentType, byte[] content) {
         if ("image/webp".equals(contentType)) {
             validateWebp(content);
@@ -312,6 +353,11 @@ public class ChatAttachmentService {
         }
     }
 
+    /**
+     * 校验 WebP 的 RIFF 容器长度、WEBP 标识和首个 VP8 数据块结构。
+     *
+     * @param content WebP 文件完整字节
+     */
     private void validateWebp(byte[] content) {
         if (content.length < 20
                 || !matchesAscii(content, 0, "RIFF")
@@ -338,6 +384,13 @@ public class ChatAttachmentService {
         }
     }
 
+    /**
+     * 按字节比较文件签名前缀。
+     *
+     * @param content 文件内容
+     * @param prefix 期望签名
+     * @return 文件以该签名开头时返回 {@code true}
+     */
     private boolean hasPrefix(byte[] content, byte[] prefix) {
         if (content.length < prefix.length) {
             return false;
@@ -350,6 +403,14 @@ public class ChatAttachmentService {
         return true;
     }
 
+    /**
+     * 在指定偏移处比较 ASCII 容器标识。
+     *
+     * @param content 文件内容
+     * @param offset 起始偏移
+     * @param expected 期望 ASCII 文本
+     * @return 长度足够且内容一致时返回 {@code true}
+     */
     private boolean matchesAscii(byte[] content, int offset, String expected) {
         byte[] expectedBytes = expected.getBytes(StandardCharsets.US_ASCII);
         if (offset < 0 || content.length - offset < expectedBytes.length) {
@@ -363,6 +424,13 @@ public class ChatAttachmentService {
         return true;
     }
 
+    /**
+     * 从四个字节读取无符号小端整数，避免 Java byte 符号扩展影响 RIFF 长度计算。
+     *
+     * @param content 文件内容
+     * @param offset 四字节整数起始偏移
+     * @return 0 到 2^32-1 范围的 long 值
+     */
     private long readUnsignedLittleEndianInt(byte[] content, int offset) {
         return (content[offset] & 0xFFL)
                 | ((content[offset + 1] & 0xFFL) << 8)
@@ -370,6 +438,14 @@ public class ChatAttachmentService {
                 | ((content[offset + 3] & 0xFFL) << 24);
     }
 
+    /**
+     * 通过账号、附件标识以及可选会话标识联合查询附件，查询不到统一表现为资源不存在。
+     *
+     * @param accountId 当前登录账号主键
+     * @param attachmentId 附件公开标识
+     * @param sessionId 可选会话约束
+     * @return 归属于当前账号的附件元数据
+     */
     private ChatAttachmentDO findOwnedAttachment(Long accountId, String attachmentId, String sessionId) {
         if (accountId == null || !StringUtils.hasText(attachmentId)) {
             throw new BusinessException(ErrorCode.CHAT_ATTACHMENT_NOT_FOUND);
@@ -389,6 +465,12 @@ public class ChatAttachmentService {
         return attachment;
     }
 
+    /**
+     * 将数据库相对路径解析到附件根目录，并阻止 {@code ..} 等路径穿越。
+     *
+     * @param relativeStoragePath 数据库存储的相对路径
+     * @return 规范化后的物理路径
+     */
     private Path resolveStoragePath(String relativeStoragePath) {
         Path resolvedPath = storageRoot.resolve(relativeStoragePath).normalize();
         if (!resolvedPath.startsWith(storageRoot)) {
@@ -398,8 +480,19 @@ public class ChatAttachmentService {
         return resolvedPath;
     }
 
+    /**
+     * 注册事务完成回调：只有数据库提交成功才保留已落盘文件，其余状态均删除文件。
+     *
+     * @param targetPath 本次新写入的物理文件
+     * @param attachmentId 日志定位用附件标识
+     */
     private void registerRollbackCleanup(Path targetPath, String attachmentId) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            /**
+             * 在事务最终状态确定后清理未提交的物理文件。
+             *
+             * @param status Spring 事务完成状态
+             */
             @Override
             public void afterCompletion(int status) {
                 if (status == TransactionSynchronization.STATUS_COMMITTED) {
@@ -415,6 +508,14 @@ public class ChatAttachmentService {
         });
     }
 
+    /**
+     * 通过全部上传校验后的不可变图片数据，后续落盘阶段不再信任 Multipart 原始字段。
+     *
+     * @param originalName 规范化原文件名
+     * @param extension 小写扩展名
+     * @param contentType 已验证 MIME
+     * @param content 完整文件字节
+     */
     private record ValidatedImage(
             String originalName,
             String extension,

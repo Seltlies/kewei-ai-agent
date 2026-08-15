@@ -15,6 +15,11 @@ import com.alibaba.dashscope.utils.JsonUtils;
  * 阿里云sdk调用
  */
 public class SdkAiInvoke{
+    /**
+     * 使用 DashScope 原生 SDK 调用 qwen-plus，演示最小系统消息和用户消息请求。
+     *
+     * @return DashScope 原始生成结果
+     */
     public static GenerationResult callWithMessage() throws ApiException, NoApiKeyException, InputRequiredException {
         Generation gen = new Generation();
         Message systemMsg = Message.builder()
@@ -36,6 +41,11 @@ public class SdkAiInvoke{
         return gen.call(param);
     }
 
+    /**
+     * 优先读取 JVM 属性，其次读取 DASHSCOPE_API_KEY 环境变量。
+     *
+     * @return 百炼 API Key
+     */
     private static String resolveApiKey() {
         String apiKey = System.getProperty("dashscope.api-key");
         if (apiKey != null && !apiKey.isBlank()) {
@@ -44,6 +54,11 @@ public class SdkAiInvoke{
         return System.getenv("DASHSCOPE_API_KEY");
     }
 
+    /**
+     * 独立运行原生 SDK 示例并输出 JSON 结果。
+     *
+     * @param args 命令行参数
+     */
     public static void main(String[] args) {
         try {
             GenerationResult result = callWithMessage();

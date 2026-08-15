@@ -15,10 +15,22 @@ public record AccountResponse(
         AccountStatus status
 ) {
 
+    /**
+     * 从持久化账号创建对外响应。
+     *
+     * @param account 数据库账号对象
+     * @return 脱敏后的账号信息
+     */
     public static AccountResponse from(UserAccountDO account) {
         return new AccountResponse(account.getId(), account.getAccount(), account.getRole(), account.getStatus());
     }
 
+    /**
+     * 从当前安全上下文中的认证快照创建对外响应。
+     *
+     * @param account 已认证账号快照
+     * @return 脱敏后的账号信息
+     */
     public static AccountResponse from(AuthenticatedAccount account) {
         return new AccountResponse(account.accountId(), account.account(), account.role(), account.status());
     }

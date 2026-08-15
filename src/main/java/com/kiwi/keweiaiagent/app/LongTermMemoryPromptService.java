@@ -20,6 +20,10 @@ public class LongTermMemoryPromptService {
     private final Resource promptResource;
     private final Path memoriesRootPath;
 
+    /**
+     * @param promptResource classpath 中的长期记忆系统提示模板
+     * @param memoriesRootPath 工具实际使用的记忆根目录
+     */
     public LongTermMemoryPromptService(
             @Value("classpath:prompts/auto-memory-tools-system-prompt.md") Resource promptResource,
             @Qualifier("longTermMemoriesRootPath") Path memoriesRootPath
@@ -28,6 +32,11 @@ public class LongTermMemoryPromptService {
         this.memoriesRootPath = memoriesRootPath;
     }
 
+    /**
+     * 读取 UTF-8 模板并替换记忆目录占位符。
+     *
+     * @return 可直接附加到模型系统消息的长期记忆提示词
+     */
     public String buildPrompt() {
         try {
             String template = StreamUtils.copyToString(promptResource.getInputStream(), StandardCharsets.UTF_8);

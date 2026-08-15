@@ -14,6 +14,12 @@ public record ChatAttachmentResponse(
         String contentUrl
 ) {
 
+    /**
+     * 将附件元数据转换为前端可用响应，并生成受权限校验保护的下载地址。
+     *
+     * @param attachment 已持久化的附件元数据
+     * @return 不暴露物理存储位置的附件响应
+     */
     public static ChatAttachmentResponse from(ChatAttachmentDO attachment) {
         return new ChatAttachmentResponse(
                 attachment.getAttachmentId(),

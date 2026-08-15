@@ -18,12 +18,36 @@ import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.apache.poi.xslf.usermodel.XSLFTextParagraph;
 import org.apache.poi.xslf.usermodel.XSLFTextRun;
 
+/**
+ * 基于 Apache POI 的 PowerPoint 生成工具，把简化 Markdown 页面描述转换为带备注的 PPTX。
+ */
 @Component
 public class PptWriterTool {
 
+    /**
+     * 单页幻灯片描述。
+     *
+     * @param title 页面标题
+     * @param bullets 正文要点
+     * @param speakerNotes 演讲者备注
+     */
     public record SlideSpec(String title, List<String> bullets, String speakerNotes) {}
+    /**
+     * PPT 生成请求。
+     *
+     * @param title 演示文稿标题
+     * @param slidesMarkdown 简化页面 Markdown
+     * @param outputPath 以 .pptx 结尾的输出路径
+     */
     public record PptSpec(String title, String slidesMarkdown, String outputPath) {}
 
+    /**
+     * 校验输入、解析页面并创建标题页、内容页和备注页。
+     *
+     * @param spec PPT 生成描述
+     * @return 成功标识、文件路径、页数和标题
+     * @throws Exception 文件系统或 POI 写入失败时抛出
+     */
     @Tool(description = """
             在磁盘生成 .pptx 文件。
             输入包含:
@@ -127,6 +151,11 @@ public class PptWriterTool {
         );
     }
 
+    /**
+     * 校验生成描述的必填字段及输出扩展名。
+     *
+     * @param spec PPT 生成描述
+     */
     private void validateSpec(PptSpec spec) {
         if (spec == null) {
             throw new IllegalArgumentException("spec must not be null");
@@ -145,6 +174,12 @@ public class PptWriterTool {
         }
     }
 
+    /**
+     * 按 {@code ## 标题}、{@code - 要点}、{@code Notes:/备注:} 规则解析页面。
+     *
+     * @param slidesMarkdown 简化页面 Markdown
+     * @return 至少包含一页的结构化页面列表
+     */
     private List<SlideSpec> parseSlides(String slidesMarkdown) {
         List<SlideSpec> slides = new ArrayList<>();
         String currentTitle = null;
@@ -193,6 +228,7 @@ public class PptWriterTool {
         return slides;
     }
 
+    /** 返回非空原值，否则返回指定默认文本。 */
     private String nonBlankOrDefault(String value, String defaultValue) {
         return (value == null || value.isBlank()) ? defaultValue : value;
     }

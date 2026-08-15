@@ -91,6 +91,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
+                                "/error",
                                 "/auth/csrf",
                                 "/auth/register",
                                 "/auth/login",
@@ -116,6 +117,14 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * 在安全过滤链内直接写出统一 JSON 失败响应，因为此处异常不会进入 ControllerAdvice。
+     *
+     * @param response Servlet 响应
+     * @param errorCode 认证或授权错误
+     * @param objectMapper JSON 序列化器
+     * @throws IOException 响应写出失败时抛出
+     */
     private void writeSecurityError(
             HttpServletResponse response,
             ErrorCode errorCode,

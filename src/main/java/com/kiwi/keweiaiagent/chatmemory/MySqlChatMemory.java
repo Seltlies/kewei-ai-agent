@@ -212,9 +212,11 @@ public class MySqlChatMemory implements ChatMemory {
         public String name;
         public String arguments;
 
+        /** 创建供 Jackson 反序列化使用的空对象。 */
         public StoredToolCall() {
         }
 
+        /** 创建包含完整工具调用字段的持久化对象。 */
         public StoredToolCall(String id, String type, String name, String arguments) {
             this.id = id;
             this.type = type;
@@ -231,9 +233,11 @@ public class MySqlChatMemory implements ChatMemory {
         public String name;
         public String responseData;
 
+        /** 创建供 Jackson 反序列化使用的空对象。 */
         public StoredToolResponse() {
         }
 
+        /** 创建包含完整工具响应字段的持久化对象。 */
         public StoredToolResponse(String id, String name, String responseData) {
             this.id = id;
             this.name = name;

@@ -58,6 +58,13 @@ public class ToolCallAgent extends ReActAgent{
      */
     private String latestAssistantText;
 
+    /**
+     * 创建工具调用型 Agent，并关闭 Spring AI 的内部自动执行机制。
+     *
+     * <p>工具由本类显式执行，才能在执行前后维护对话历史、识别待回答问题并统一处理工具错误。</p>
+     *
+     * @param toolCalbacks 本次 Agent 允许调用的工具回调
+     */
     public ToolCallAgent(ToolCallback[] toolCalbacks){
         super();
         this.availableTools = toolCalbacks;
@@ -111,11 +118,10 @@ public class ToolCallAgent extends ReActAgent{
             }
             return true;
         } catch (BusinessException e) {
-            log.error("工具调用过程中发生错误: {}", e.getMessage());
-            getMessageList().add(new AssistantMessage(e.getMessage()));
-            return false;
-        } finally {
-            cleanup();
+            // 业务异常必须交给 BaseAgent 的统一执行循环处理，由统一入口持久化 FAILED 终态并推送错误事件。
+            // 此处不能转换为“无需继续执行”，否则上层会把失败步骤误当成正常结束。
+            log.error("工具调用过程中发生业务异常，交由执行循环收口，agent={}，message={}", getName(), e.getMessage(), e);
+            throw e;
         }
     }
 
@@ -138,6 +144,23 @@ public class ToolCallAgent extends ReActAgent{
 
         if (hasPendingUserInput(toolResponseMessage)) {
             throw new PendingUserQuestionException(List.of());
+        }
+
+        // Spring AI 工具允许通过字符串返回可展示的失败原因。只要任一工具明确返回 Error，
+        // 当前步骤就必须进入统一 FAILED 收口，不能继续交给模型把错误解释成普通结果。
+        ToolResponseMessage.ToolResponse failedToolResponse = toolResponseMessage.getResponses().stream()
+                .filter(response -> StrUtil.startWithIgnoreCase(
+                        StrUtil.blankToDefault(response.responseData(), ""),
+                        "Error"
+                ))
+                .findFirst()
+                .orElse(null);
+        if (failedToolResponse != null) {
+            log.error("Manus 工具执行返回失败结果，agent={}，tool={}", getName(), failedToolResponse.name());
+            throw new BusinessException(
+                    ErrorCode.AGENT_RUN_FAILED,
+                    "工具 " + failedToolResponse.name() + " 执行失败"
+            );
         }
 
         // 判断是否调用终止工具
@@ -174,7 +197,10 @@ public class ToolCallAgent extends ReActAgent{
             }
             return "思考结束，不需要行动";
         } catch (BusinessException e) {
-            return "执行过程中发生错误: " + e.getMessage();
+            // 执行状态只能由 BaseAgent 统一收口；继续向上抛出后，BaseAgent 会调用
+            // ManusSessionStore.failExecution 写入 FAILED，避免错误被包装成普通步骤文本。
+            log.error("工具执行步骤发生业务异常，交由执行循环收口，agent={}，message={}", getName(), e.getMessage(), e);
+            throw e;
         }
     }
 
@@ -204,6 +230,12 @@ public class ToolCallAgent extends ReActAgent{
         return systemPrompt + "\n\n" + nextStepPrompt;
     }
 
+    /**
+     * 当模型只返回 tool_calls 而没有文本时，生成可供用户理解的执行计划摘要。
+     *
+     * @param assistantMessage 模型助手消息
+     * @return 模型原文或按调用顺序拼接的工具链摘要
+     */
     String summarizeToolPlan(AssistantMessage assistantMessage) {
         List<AssistantMessage.ToolCall> toolCalls = assistantMessage.getToolCalls();
         if (CollUtil.isEmpty(toolCalls)) {
@@ -215,6 +247,12 @@ public class ToolCallAgent extends ReActAgent{
         return "计划执行工具链: " + tools + "；完成后会汇总结果。";
     }
 
+    /**
+     * 判断工具结果中是否包含 AskUserQuestionTool 的暂停信号。
+     *
+     * @param toolResponseMessage 本轮工具执行汇总消息
+     * @return 需要暂停并等待用户回答时返回 {@code true}
+     */
     boolean hasPendingUserInput(ToolResponseMessage toolResponseMessage) {
         if (toolResponseMessage == null || CollUtil.isEmpty(toolResponseMessage.getResponses())) {
             return false;

@@ -9,6 +9,7 @@ public final class AuthSessionConstants {
     public static final String ACCOUNT_ID = "AUTH_ACCOUNT_ID";
     public static final String AUTHENTICATED_AT = "AUTH_AUTHENTICATED_AT";
 
+    /** 常量容器不保存实例状态，禁止创建对象。 */
     private AuthSessionConstants() {
     }
 }

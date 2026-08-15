@@ -199,6 +199,19 @@ public abstract class BaseAgent {
                     );
                 }
                 if (activateSession) {
+                    // Todo 是 Manus 对任务完成度的结构化事实。只要仍存在 pending 或 in_progress，
+                    // 就不能把执行写成 COMPLETED；统一抛给下方异常分支落为 FAILED，防止“工具失败、
+                    // 模型停止继续调用”被页面误判为任务成功。
+                    TodoSnapshot finalTodoSnapshot = manusSessionStore.getTodoSnapshot(sessionId, executionId);
+                    boolean hasUnfinishedTodo = finalTodoSnapshot != null
+                            && finalTodoSnapshot.items() != null
+                            && finalTodoSnapshot.items().stream()
+                            .anyMatch(item -> !"completed".equalsIgnoreCase(item.status()));
+                    if (hasUnfinishedTodo) {
+                        log.warn("Manus 模型已停止但仍有未完成 Todo，执行按失败收口，sessionId={}，executionId={}",
+                                sessionId, executionId);
+                        throw new BusinessException(ErrorCode.AGENT_RUN_FAILED, "Manus 仍有未完成任务");
+                    }
                     manusSessionStore.completeExecution(sessionId, executionId);
                 }
                 sseEmitter.send(SseEmitter.event().name("done").data("[DONE]"));
@@ -261,12 +274,11 @@ public abstract class BaseAgent {
         });
 
         sseEmitter.onCompletion(()->{
-            // 工作线程负责最终状态和资源清理；客户端断开触发 onCompletion 时不能把仍在运行的
-            // 智能体误判为成功，也不能提前移除其会话状态。
-            if (state != AgentState.RUNNING && state != AgentState.WAITING_FOR_USER_INPUT) {
-                this.cleanup();
-            }
-                log.info("Agent {} runStream completed with state {}", name, state);
+            // onCompletion 由 Servlet 容器线程触发，可能与工作线程的 FAILED 持久化并发。
+            // 这里只记录连接完成，不清理内存会话；执行线程 finally 或超时回调会在数据库终态
+            // 写入完成后统一 cleanup，避免先移除会话导致 failExecution 静默失效。
+            log.info("Agent {} SSE connection completed, currentState={}，sessionId={}，executionId={}",
+                    name, state, sessionId, executionId);
         });
 
         return sseEmitter;
@@ -293,10 +305,24 @@ public abstract class BaseAgent {
         }
     }
 
+    /**
+     * 将业务异常转换为与普通 Agent 输出一致的前端错误文本。
+     *
+     * @param e 已包含稳定业务语义的异常
+     * @return 带 Agent 名称的错误消息
+     */
     private String formatErrorMessage(BusinessException e) {
         return String.format("Agent %s error: %s", name, e.getMessage());
     }
 
+    /**
+     * 尝试发送命名为 {@code error} 的 SSE 事件。
+     *
+     * <p>发送失败通常意味着浏览器已经断开，此处只记录日志，避免覆盖真正的业务异常。</p>
+     *
+     * @param sseEmitter 当前流式连接
+     * @param errorMessage 可展示的错误信息
+     */
     private void sendErrorEvent(SseEmitter sseEmitter, String errorMessage) {
         try {
             sseEmitter.send(SseEmitter.event().name("error").data(errorMessage));
@@ -342,6 +368,11 @@ public abstract class BaseAgent {
         }
     }
 
+    /**
+     * 从当前会话读取最新待办快照并构造事件载荷。
+     *
+     * @return 当前执行对应的待办事件；会话未激活或尚无快照时返回 {@code null}
+     */
     TodoEventPayload buildTodoEventPayload() {
         if (manusSessionStore == null || !StringUtils.hasText(sessionId)) {
             return null;

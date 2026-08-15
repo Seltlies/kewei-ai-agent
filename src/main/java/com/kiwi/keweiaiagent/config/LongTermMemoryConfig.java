@@ -15,6 +15,12 @@ import java.nio.file.Path;
 @Configuration
 public class LongTermMemoryConfig {
 
+    /**
+     * 创建长期记忆根目录及初始 MEMORY.md 索引，并作为共享 Path Bean 提供给所有记忆工具。
+     *
+     * @param memoriesRootDirectory 外部配置的记忆目录
+     * @return 绝对、规范化后的记忆根路径
+     */
     @Bean(name = "longTermMemoriesRootPath")
     public Path longTermMemoriesRootPath(
             @Value("${app.long-term-memory.dir:${user.dir}/tmp/agent-memory}") String memoriesRootDirectory

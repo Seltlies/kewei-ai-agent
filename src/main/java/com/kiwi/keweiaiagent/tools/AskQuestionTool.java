@@ -20,6 +20,11 @@ public class AskQuestionTool {
     @Resource
     private ManusSessionStore manusSessionStore;
 
+    /**
+     * 创建社区 AskUserQuestionTool，并把问题处理回调接入当前 Manus 会话存储。
+     *
+     * @return 可注册给 Spring AI 的提问工具
+     */
     @Bean
     public AskUserQuestionTool askUserQuestionTool() {
         return AskUserQuestionTool.builder()
@@ -27,6 +32,12 @@ public class AskQuestionTool {
                 .build();
     }
 
+    /**
+     * 有已提交答案时消费并返回；否则保存问题并通过控制流异常暂停 Agent。
+     *
+     * @param questions 模型生成的结构化问题
+     * @return 问题文本到答案的映射
+     */
     private Map<String, String> handleQuestions(List<AskUserQuestionTool.Question> questions) {
         String sessionId = manusSessionStore.currentSessionId();
         if (sessionId == null) {

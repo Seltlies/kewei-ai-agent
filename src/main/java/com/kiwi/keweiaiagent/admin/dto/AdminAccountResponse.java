@@ -21,6 +21,13 @@ public record AdminAccountResponse(
         Long version
 ) {
 
+    /**
+     * 将数据库账号对象转换为管理端响应，并标识记录是否属于当前操作者。
+     *
+     * @param account 数据库账号对象
+     * @param currentAccountId 当前登录账号主键
+     * @return 不包含敏感认证字段的管理端账号响应
+     */
     public static AdminAccountResponse from(UserAccountDO account, Long currentAccountId) {
         return new AdminAccountResponse(
                 account.getId(),

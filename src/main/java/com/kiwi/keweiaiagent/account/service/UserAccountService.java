@@ -36,6 +36,13 @@ public class UserAccountService {
     private final JdbcTemplate mysqlJdbcTemplate;
     private final String dummyPasswordHash;
 
+    /**
+     * 注入账号持久化、密码编码和 MySQL 锁表访问能力，并生成随机虚拟密码摘要。
+     *
+     * @param userAccountMapper 账号 Mapper
+     * @param passwordEncoder BCrypt 密码编码器
+     * @param mysqlJdbcTemplate 绑定业务 MySQL 的 JDBC 模板
+     */
     public UserAccountService(
             UserAccountMapper userAccountMapper,
             PasswordEncoder passwordEncoder,
@@ -190,6 +197,12 @@ public class UserAccountService {
         }
     }
 
+    /**
+     * 按唯一规范化账号查询记录，供注册去重、登录和启动管理员校验共用。
+     *
+     * @param normalizedAccount 已完成大小写与 Unicode 规范化的账号
+     * @return 账号记录；不存在时返回 {@code null}
+     */
     private UserAccountDO findByNormalizedAccount(String normalizedAccount) {
         return userAccountMapper.selectOne(
                 new LambdaQueryWrapper<UserAccountDO>()
@@ -198,6 +211,11 @@ public class UserAccountService {
         );
     }
 
+    /**
+     * 统计仍可登录的管理员数量，用于启动期验证系统不会失去管理入口。
+     *
+     * @return ADMIN 且 ACTIVE 的账号数
+     */
     private long countActiveAdmins() {
         return userAccountMapper.selectCount(
                 new LambdaQueryWrapper<UserAccountDO>()
@@ -206,6 +224,14 @@ public class UserAccountService {
         );
     }
 
+    /**
+     * 使用已验证账号值和密码摘要创建统一初始状态的持久化对象。
+     *
+     * @param accountValue 显示账号及规范化账号
+     * @param passwordHash BCrypt 摘要
+     * @param role 初始角色
+     * @return 尚未插入数据库的 ACTIVE 账号对象
+     */
     private UserAccountDO buildAccount(
             AccountRules.AccountValue accountValue,
             String passwordHash,

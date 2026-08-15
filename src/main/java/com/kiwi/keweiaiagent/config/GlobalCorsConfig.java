@@ -16,6 +16,11 @@ public class GlobalCorsConfig implements WebMvcConfigurer {
 
     private final String[] allowedOrigins;
 
+    /**
+     * 将逗号分隔的外部配置解析为精确 Origin 列表。
+     *
+     * @param allowedOrigins 允许携带认证 Cookie 的前端来源
+     */
     public GlobalCorsConfig(@Value("${app.cors.allowed-origins:http://localhost:5173}") String allowedOrigins) {
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)

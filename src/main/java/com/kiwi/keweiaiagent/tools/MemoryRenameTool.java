@@ -15,10 +15,18 @@ public class MemoryRenameTool {
 
     private final MemoryToolSupport support;
 
+    /** @param memoriesRootPath 长期记忆沙箱根目录 */
     public MemoryRenameTool(@Qualifier("longTermMemoriesRootPath") Path memoriesRootPath) {
         this.support = new MemoryToolSupport(memoriesRootPath);
     }
 
+    /**
+     * 在沙箱范围内重命名或移动记忆文件/目录。
+     *
+     * @param sourcePath 原相对路径
+     * @param targetPath 新相对路径
+     * @return 移动结果或错误文本
+     */
     @Tool(name = "MemoryRename", description = "Rename or move a memory file within the sandboxed memories directory", returnDirect = false)
     public String memoryRename(
             @ToolParam(description = "Current relative path of the memory file or directory") String sourcePath,

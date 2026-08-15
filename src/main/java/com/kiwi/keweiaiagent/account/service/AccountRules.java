@@ -19,6 +19,7 @@ public final class AccountRules {
     private static final Pattern ENGLISH_LETTER_PATTERN = Pattern.compile("[A-Za-z]");
     private static final Pattern DIGIT_PATTERN = Pattern.compile("[0-9]");
 
+    /** 规则类只提供静态校验方法，禁止实例化。 */
     private AccountRules() {
     }
 

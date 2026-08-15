@@ -20,6 +20,9 @@ import java.util.Locale;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * SearchAPI Google 搜索工具，负责参数规范化、凭据读取和搜索结果压缩。
+ */
 @Component
 @Slf4j
 public class WebSearchTool {
@@ -33,6 +36,9 @@ public class WebSearchTool {
     @Autowired(required = false)
     private Environment environment;
 
+    /**
+     * 启动时只记录 API Key 是否存在及长度，不输出密钥正文。
+     */
     @PostConstruct
     public void logKeyStatusAtStartup() {
         String key = resolveApiKey();
@@ -44,6 +50,17 @@ public class WebSearchTool {
         log.info("WebSearchTool init: SearchAPI key loaded. length={}, activeProfiles={}", key.length(), activeProfiles);
     }
 
+    /**
+     * 调用 SearchAPI Google 引擎并返回最多五条精简自然搜索结果。
+     *
+     * @param q 搜索关键词
+     * @param location 标准位置名称
+     * @param gl 国家代码
+     * @param hl 语言代码
+     * @param page 页码
+     * @param timePeriod 时间范围过滤器
+     * @return 精简结果或可供 Agent 处理的错误文本
+     */
     @Tool(description = "Search websites by Google engine and return concise top web results",returnDirect = false)
     public String searchWebsite(
             @ToolParam(description = "Search query keywords") String q,
@@ -98,6 +115,11 @@ public class WebSearchTool {
         }
     }
 
+    /**
+     * 从 Spring 配置、系统属性和环境变量中读取 SearchAPI Key。
+     *
+     * @return API Key；未配置时为空
+     */
     String resolveApiKey() {
         String apiKey = configuredApiKey;
         if (StrUtil.isBlank(apiKey) && environment != null) {
@@ -115,6 +137,7 @@ public class WebSearchTool {
         return apiKey;
     }
 
+    /** 将支持的中文/英文写法规范为 SearchAPI 语言代码。 */
     String normalizeHl(String hl) {
         if (StrUtil.isBlank(hl)) {
             return "en";
@@ -129,6 +152,7 @@ public class WebSearchTool {
         return "en";
     }
 
+    /** 将国家代码限制为当前支持的 cn 或 us。 */
     String normalizeGl(String gl) {
         if (StrUtil.isBlank(gl)) {
             return "us";
@@ -140,6 +164,9 @@ public class WebSearchTool {
         return "us";
     }
 
+    /**
+     * 清理位置分隔符并把常见中文地名转换为 SearchAPI 标准名称。
+     */
     String normalizeLocation(String location) {
         if (StrUtil.isBlank(location)) {
             return "";
@@ -156,6 +183,7 @@ public class WebSearchTool {
         return normalized;
     }
 
+    /** 将空值和非正页码规范为第一页。 */
     int normalizePage(Integer page) {
         if (page == null || page < 1) {
             return 1;
@@ -163,6 +191,7 @@ public class WebSearchTool {
         return page;
     }
 
+    /** 仅保留 SearchAPI 支持的时间范围枚举。 */
     String normalizeTimePeriod(String timePeriod) {
         if (StrUtil.isBlank(timePeriod)) {
             return "";
@@ -171,6 +200,13 @@ public class WebSearchTool {
         return SUPPORTED_TIME_PERIODS.contains(normalized) ? normalized : "";
     }
 
+    /**
+     * 从 SearchAPI JSON 中提取总数和前五条标题、链接、摘要。
+     *
+     * @param root API 响应 JSON
+     * @param query 原搜索词
+     * @return 适合模型继续处理的多行文本
+     */
     String toConciseResult(JSONObject root, String query) {
         List<String> lines = new ArrayList<>();
         lines.add("query: " + query);

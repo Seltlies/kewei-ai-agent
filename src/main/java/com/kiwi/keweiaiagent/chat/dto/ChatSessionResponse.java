@@ -14,6 +14,12 @@ public record ChatSessionResponse(
         LocalDateTime createTime,
         LocalDateTime updateTime
 ) {
+    /**
+     * 将会话持久化对象映射为页面响应。
+     *
+     * @param session 当前账号可访问的会话对象
+     * @return 对外会话信息
+     */
     public static ChatSessionResponse from(ChatSessionDO session) {
         return new ChatSessionResponse(
                 session.getSessionId(),

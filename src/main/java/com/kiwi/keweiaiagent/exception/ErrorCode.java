@@ -2,6 +2,12 @@ package com.kiwi.keweiaiagent.exception;
 
 import org.springframework.http.HttpStatus;
 
+/**
+ * API 统一错误目录。
+ *
+ * <p>业务代码通过枚举同时确定响应体错误码、默认中文消息和 HTTP 状态，
+ * 避免各 Controller 对同一种失败返回不同协议。</p>
+ */
 public enum ErrorCode {
 
     SUCCESS(0, "success", HttpStatus.OK),
@@ -32,20 +38,30 @@ public enum ErrorCode {
     private final String message;
     private final HttpStatus httpStatus;
 
+    /**
+     * 定义一条稳定错误协议。
+     *
+     * @param code 供前端分支处理的业务码
+     * @param message 默认展示消息
+     * @param httpStatus 对应 HTTP 语义
+     */
     ErrorCode(int code, String message, HttpStatus httpStatus) {
         this.code = code;
         this.message = message;
         this.httpStatus = httpStatus;
     }
 
+    /** @return 业务错误码 */
     public int getCode() {
         return code;
     }
 
+    /** @return 默认错误消息 */
     public String getMessage() {
         return message;
     }
 
+    /** @return 对应的 HTTP 状态 */
     public HttpStatus getHttpStatus() {
         return httpStatus;
     }

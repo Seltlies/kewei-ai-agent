@@ -18,10 +18,19 @@ public class MemoryInsertTool {
 
     private final MemoryToolSupport support;
 
+    /** @param memoriesRootPath 长期记忆沙箱根目录 */
     public MemoryInsertTool(@Qualifier("longTermMemoriesRootPath") Path memoriesRootPath) {
         this.support = new MemoryToolSupport(memoriesRootPath);
     }
 
+    /**
+     * 在从 1 开始的指定行后插入文本；0 表示文件开头，空值表示文件末尾。
+     *
+     * @param relativePath 相对记忆文件路径
+     * @param afterLine 插入位置
+     * @param textToInsert 待插入文本
+     * @return 插入结果或错误文本
+     */
     @Tool(name = "MemoryInsert", description = "Insert text after a given line number in an existing memory file", returnDirect = false)
     public String memoryInsert(
             @ToolParam(description = "Relative path of the memory file to update") String relativePath,

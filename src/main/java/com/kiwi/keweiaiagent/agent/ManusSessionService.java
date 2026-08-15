@@ -196,6 +196,15 @@ public class ManusSessionService {
         }
     }
 
+    /**
+     * 根据任务领域从已注册工具中筛选最小可用集合。
+     *
+     * <p>GENERAL 保留全部工具；有明确领域时只暴露该领域工具和长期记忆工具，
+     * 减少模型误选工具并降低工具定义占用的上下文。</p>
+     *
+     * @param prompt 用户原始任务
+     * @return 传给 KeweiManus 的工具回调数组
+     */
     ToolCallback[] selectToolsForPrompt(String prompt) {
         TaskDomain domain = routeTaskDomain(prompt);
         if (domain == TaskDomain.GENERAL) {
@@ -217,6 +226,12 @@ public class ManusSessionService {
         return selected;
     }
 
+    /**
+     * 使用任务中的显式领域词识别工具路由类别，匹配顺序处理可能同时出现的关键词。
+     *
+     * @param prompt 用户原始任务
+     * @return 任务领域；空白或未命中时为 GENERAL
+     */
     TaskDomain routeTaskDomain(String prompt) {
         if (prompt == null || prompt.isBlank()) {
             return TaskDomain.GENERAL;
@@ -237,6 +252,13 @@ public class ManusSessionService {
         return TaskDomain.GENERAL;
     }
 
+    /**
+     * 判断已标准化文本是否包含任一领域关键词。
+     *
+     * @param text 已转为小写的任务文本
+     * @param keywords 候选关键词
+     * @return 命中任一关键词时返回 {@code true}
+     */
     private boolean containsAny(String text, String... keywords) {
         for (String keyword : keywords) {
             if (text.contains(keyword)) {
@@ -246,6 +268,12 @@ public class ManusSessionService {
         return false;
     }
 
+    /**
+     * 合并领域工具与所有长期记忆工具，并生成不可变名称集合。
+     *
+     * @param toolNames 领域专用工具名称
+     * @return 去重后的完整允许列表
+     */
     private static Set<String> withMemoryTools(String... toolNames) {
         LinkedHashSet<String> names = new LinkedHashSet<>(MEMORY_TOOL_NAMES);
         names.addAll(Arrays.asList(toolNames));
